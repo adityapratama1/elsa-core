@@ -16,6 +16,7 @@ namespace Elsa.Services.Workflows
 {
     public class WorkflowRunner : IWorkflowRunner
     {
+        private static readonly TimeSpan FinalizationTimeout = TimeSpan.FromSeconds(30);
         private delegate ValueTask<IActivityExecutionResult> ActivityOperation(ActivityExecutionContext activityExecutionContext, IActivity activity);
 
         private static readonly ActivityOperation Execute = (context, activity) => activity.ExecuteAsync(context);
@@ -57,7 +58,8 @@ namespace Elsa.Services.Workflows
 
             var workflowExecutionContext = new WorkflowExecutionContext(workflowExecutionScope.ServiceProvider, workflowBlueprint, workflowInstance, input);
             var result = await RunWorkflowInternalAsync(workflowExecutionContext, activityId, cancellationToken);
-            await workflowExecutionContext.WorkflowExecutionLog.FlushAsync(cancellationToken);
+            using var finalizationTokenSource = RequiresDurableFinalization(workflowExecutionContext.Status) ? CreateFinalizationTokenSource() : null;
+            await workflowExecutionContext.WorkflowExecutionLog.FlushAsync(finalizationTokenSource?.Token ?? cancellationToken);
             return result;
         }
 
@@ -131,7 +133,12 @@ namespace Elsa.Services.Workflows
                     throw new ArgumentOutOfRangeException();
             }
 
-            await _mediator.Publish(new WorkflowExecuted(workflowExecutionContext), cancellationToken);
+            // Once a durable workflow state has been reached, request cancellation must not cancel
+            // the notifications responsible for persisting that state.
+            using var finalizationTokenSource = RequiresDurableFinalization(workflowExecutionContext.Status) ? CreateFinalizationTokenSource() : null;
+            var notificationToken = finalizationTokenSource?.Token ?? cancellationToken;
+
+            await _mediator.Publish(new WorkflowExecuted(workflowExecutionContext), notificationToken);
 
             var statusEvents = workflowExecutionContext.Status switch
             {
@@ -143,9 +150,9 @@ namespace Elsa.Services.Workflows
             };
 
             foreach (var statusEvent in statusEvents)
-                await _mediator.Publish(statusEvent, cancellationToken);
+                await _mediator.Publish(statusEvent, notificationToken);
 
-            await _mediator.Publish(new WorkflowExecutionFinished(workflowExecutionContext), cancellationToken);
+            await _mediator.Publish(new WorkflowExecutionFinished(workflowExecutionContext), notificationToken);
             return runWorkflowResult;
         }
 
@@ -313,15 +320,17 @@ namespace Elsa.Services.Workflows
                         , cancellationToken);
 
                     var result = await TryExecuteActivityAsync(activityOperation, activityExecutionContext, activity, cancellationToken);
+                    using var faultFinalizationTokenSource = result is FaultResult ? CreateFinalizationTokenSource() : null;
+                    var resultToken = faultFinalizationTokenSource?.Token ?? cancellationToken;
 
                     await CheckIfCompositeEventAsync(isComposite
                         , compositeScheduledValue
                         , new ActivityExecuted(activityExecutionContext, activity)
                         , _mediator
-                        , cancellationToken);
+                        , resultToken);
 
-                    await _mediator.Publish(new ActivityExecutionResultExecuting(result, activityExecutionContext), cancellationToken);
-                    await result.ExecuteAsync(activityExecutionContext, cancellationToken);
+                    await _mediator.Publish(new ActivityExecutionResultExecuting(result, activityExecutionContext), resultToken);
+                    await result.ExecuteAsync(activityExecutionContext, resultToken);
 
                     workflowExecutionContext.CompletePass();
                     workflowInstance.LastExecutedActivityId = currentActivityId;
@@ -330,11 +339,11 @@ namespace Elsa.Services.Workflows
                         , compositeScheduledValue
                         , new ActivityExecutionResultExecuted(result, activityExecutionContext)
                         , _mediator
-                        , cancellationToken);
+                        , resultToken);
 
                     if (workflowExecutionContext.Status == WorkflowStatus.Faulted)
                     {
-                        await _mediator.Publish(new WorkflowFaulting(activityExecutionContext, activity), cancellationToken);
+                        await _mediator.Publish(new WorkflowFaulting(activityExecutionContext, activity), resultToken);
 
                         // Only break out of loop if the status hasn't changed to Cancelled, in which case we might need to continue executing any scheduled compensation activities.
                         if (workflowExecutionContext.Status == WorkflowStatus.Faulted)
@@ -412,10 +421,16 @@ namespace Elsa.Services.Workflows
             {
                 _logger.LogWarning(e, "Failed to run activity {ActivityId} of workflow {WorkflowInstanceId}", activity.Id, activityExecutionContext.WorkflowInstance.Id);
 
-                await _mediator.Publish(new ActivityFaulted(e, activityExecutionContext, activity), cancellationToken);
+                using var finalizationTokenSource = CreateFinalizationTokenSource();
+                await _mediator.Publish(new ActivityFaulted(e, activityExecutionContext, activity), finalizationTokenSource.Token);
 
                 return new FaultResult(e);
             }
         }
+
+        private static bool RequiresDurableFinalization(WorkflowStatus status) =>
+            status is WorkflowStatus.Cancelled or WorkflowStatus.Faulted or WorkflowStatus.Finished or WorkflowStatus.Suspended;
+
+        private static CancellationTokenSource CreateFinalizationTokenSource() => new(FinalizationTimeout);
     }
 }
