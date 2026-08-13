@@ -25,6 +25,7 @@ export class ElsaWorkflowDefinitionsListScreen {
   @Prop() culture: string;
   @Prop() basePath: string;
   @State() workflowDefinitions: PagedList<WorkflowDefinitionSummary> = {items: [], page: 1, pageSize: 50, totalCount: 0};
+  @State() publishedWorkflowDefinitions: WorkflowDefinitionSummary[] = [];
   @State() currentPage: number = 0;
   @State() currentPageSize: number = ElsaWorkflowDefinitionsListScreen.DEFAULT_PAGE_SIZE;
   @State() currentSearchTerm?: string;
@@ -117,8 +118,17 @@ export class ElsaWorkflowDefinitionsListScreen {
     const elsaClient = await this.createClient();
     const page = this.currentPage;
     const pageSize = this.currentPageSize;
-    const latestOrPublishedVersionOptions: VersionOptions = {isLatestOrPublished: true};
-    this.workflowDefinitions = await elsaClient.workflowDefinitionsApi.list(page, pageSize, latestOrPublishedVersionOptions, this.currentSearchTerm);
+    const latestVersionOptions: VersionOptions = {isLatest: true};
+    const publishedVersionOptions: VersionOptions = {isPublished: true};
+    const latestWorkflowDefinitions = await elsaClient.workflowDefinitionsApi.list(page, pageSize, latestVersionOptions, this.currentSearchTerm);
+    const publishedWorkflowDefinitionIds = latestWorkflowDefinitions.items
+      .filter(x => !x.isPublished)
+      .map(x => x.definitionId);
+
+    this.publishedWorkflowDefinitions = publishedWorkflowDefinitionIds.length > 0
+      ? await elsaClient.workflowDefinitionsApi.getMany(publishedWorkflowDefinitionIds, publishedVersionOptions)
+      : [];
+    this.workflowDefinitions = latestWorkflowDefinitions;
   }
 
   createClient() {
@@ -126,9 +136,7 @@ export class ElsaWorkflowDefinitionsListScreen {
   }
 
   render() {
-    const allDefinitions = this.workflowDefinitions.items;
-    const latestDefinitions = allDefinitions.filter(x => x.isLatest);
-    const publishedDefinitions = allDefinitions.filter(x => x.isPublished);
+    const workflowDefinitions = this.workflowDefinitions.items;
     const totalCount = this.workflowDefinitions.totalCount;
     const i18next = this.i18next;
     const IntlMessage = GetIntlMessage(i18next);
@@ -181,10 +189,10 @@ export class ElsaWorkflowDefinitionsListScreen {
             </tr>
             </thead>
             <tbody class="elsa-bg-white elsa-divide-y elsa-divide-gray-100">
-            {latestDefinitions.map(workflowDefinition => {
+            {workflowDefinitions.map(workflowDefinition => {
               const latestVersionNumber = workflowDefinition.version;
               const {isPublished} = workflowDefinition;
-              const publishedVersion: WorkflowDefinitionSummary = isPublished ? workflowDefinition : publishedDefinitions.find(x => x.definitionId == workflowDefinition.definitionId);
+              const publishedVersion: WorkflowDefinitionSummary = isPublished ? workflowDefinition : this.publishedWorkflowDefinitions.find(x => x.definitionId == workflowDefinition.definitionId);
               const publishedVersionNumber = !!publishedVersion ? publishedVersion.version : '-';
               let workflowDisplayName = workflowDefinition.displayName;
 

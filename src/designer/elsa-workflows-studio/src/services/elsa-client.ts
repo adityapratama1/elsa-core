@@ -269,6 +269,112 @@ export const createElsaClient = async function (serverUrl: string): Promise<Elsa
         return response.data;
       }
     },
+    workflowActivityCheckpointsApi: {
+      listStale: async (page?: number, pageSize?: number, minimumAgeSeconds?: number, searchTerm?: string): Promise<WorkflowActivityCheckpointPage> => {
+        const queryString = {};
+
+        if (!!page || page === 0)
+          queryString['page'] = page;
+
+        if (!!pageSize)
+          queryString['pageSize'] = pageSize;
+
+        if (!!minimumAgeSeconds)
+          queryString['minimumAgeSeconds'] = minimumAgeSeconds;
+
+        if (!!searchTerm)
+          queryString['searchTerm'] = encodeURIComponent(searchTerm);
+
+        const queryStringItems = collection.map(queryString, (v, k) => `${k}=${v}`);
+        const queryStringText = queryStringItems.length > 0 ? `?${queryStringItems.join('&')}` : '';
+        const response = await httpClient.get<WorkflowActivityCheckpointPage>(`v1/workflow-activity-checkpoints/stale${queryStringText}`);
+        return response.data;
+      },
+      listRecovered: async (page?: number, pageSize?: number, searchTerm?: string, recoveredByType?: string): Promise<WorkflowActivityCheckpointPage> => {
+        const queryString = {};
+
+        if (!!page || page === 0)
+          queryString['page'] = page;
+
+        if (!!pageSize)
+          queryString['pageSize'] = pageSize;
+
+        if (!!searchTerm)
+          queryString['searchTerm'] = encodeURIComponent(searchTerm);
+
+        if (!!recoveredByType)
+          queryString['recoveredByType'] = encodeURIComponent(recoveredByType);
+
+        const queryStringItems = collection.map(queryString, (v, k) => `${k}=${v}`);
+        const queryStringText = queryStringItems.length > 0 ? `?${queryStringItems.join('&')}` : '';
+        const response = await httpClient.get<WorkflowActivityCheckpointPage>(`v1/workflow-activity-checkpoints/recovered${queryStringText}`);
+        return response.data;
+      },
+      listRunningForReview: async (page?: number, pageSize?: number, minimumAgeSeconds?: number, searchTerm?: string): Promise<RunningWorkflowReviewPage> => {
+        const queryString = {};
+
+        if (!!page || page === 0)
+          queryString['page'] = page;
+
+        if (!!pageSize)
+          queryString['pageSize'] = pageSize;
+
+        if (!!minimumAgeSeconds)
+          queryString['minimumAgeSeconds'] = minimumAgeSeconds;
+
+        if (!!searchTerm)
+          queryString['searchTerm'] = encodeURIComponent(searchTerm);
+
+        const queryStringItems = collection.map(queryString, (v, k) => `${k}=${v}`);
+        const queryStringText = queryStringItems.length > 0 ? `?${queryStringItems.join('&')}` : '';
+        const response = await httpClient.get<RunningWorkflowReviewPage>(`v1/workflow-activity-checkpoints/running${queryStringText}`);
+        return response.data;
+      },
+      listFaultedForReview: async (page?: number, pageSize?: number, minimumAgeSeconds?: number, searchTerm?: string): Promise<RunningWorkflowReviewPage> => {
+        const queryString = {};
+
+        if (!!page || page === 0)
+          queryString['page'] = page;
+
+        if (!!pageSize)
+          queryString['pageSize'] = pageSize;
+
+        if (!!minimumAgeSeconds)
+          queryString['minimumAgeSeconds'] = minimumAgeSeconds;
+
+        if (!!searchTerm)
+          queryString['searchTerm'] = encodeURIComponent(searchTerm);
+
+        const queryStringItems = collection.map(queryString, (v, k) => `${k}=${v}`);
+        const queryStringText = queryStringItems.length > 0 ? `?${queryStringItems.join('&')}` : '';
+        const response = await httpClient.get<RunningWorkflowReviewPage>(`v1/workflow-activity-checkpoints/faulted${queryStringText}`);
+        return response.data;
+      },
+      listByWorkflowInstance: async workflowInstanceId => {
+        const response = await httpClient.get<Array<WorkflowActivityCheckpoint>>(`v1/workflow-instances/${workflowInstanceId}/checkpoints`);
+        return response.data;
+      },
+      getReview: async workflowInstanceId => {
+        const response = await httpClient.get<WorkflowInstanceCheckpointReview>(`v1/workflow-instances/${workflowInstanceId}/checkpoint-review`);
+        return response.data;
+      },
+      recoverFromCheckpoint: async (workflowInstanceId, request) => {
+        const response = await httpClient.post<WorkflowActivityRecoveryResult>(`v1/workflow-instances/${workflowInstanceId}/recover-from-checkpoint`, request);
+        return response.data;
+      },
+      reviveFaulted: async (workflowInstanceId, request) => {
+        const response = await httpClient.post<WorkflowActivityRecoveryResult>(`v1/workflow-instances/${workflowInstanceId}/revive-faulted`, request);
+        return response.data;
+      },
+      restartFromActivity: async (workflowInstanceId, request) => {
+        const response = await httpClient.post<WorkflowActivityRecoveryResult>(`v1/workflow-instances/${workflowInstanceId}/restart-from-activity`, request);
+        return response.data;
+      },
+      requeueDelay: async (workflowInstanceId, activityId, reason?: string) => {
+        const response = await httpClient.post<WorkflowActivityRecoveryResult>(`v1/workflow-instances/${workflowInstanceId}/delay-activities/${activityId}/requeue`, {activityId, reason});
+        return response.data;
+      }
+    },
     workflowExecutionLogApi: {
       get: async (workflowInstanceId: string, page?: number, pageSize?: number): Promise<PagedList<WorkflowExecutionLogRecord>> => {
         const queryString = {};
@@ -363,6 +469,7 @@ export interface ElsaClient {
   workflowDefinitionsApi: WorkflowDefinitionsApi;
   workflowRegistryApi: WorkflowRegistryApi;
   workflowInstancesApi: WorkflowInstancesApi;
+  workflowActivityCheckpointsApi: WorkflowActivityCheckpointsApi;
   workflowExecutionLogApi: WorkflowExecutionLogApi;
   scriptingApi: ScriptingApi;
   designerApi: DesignerApi;
@@ -454,6 +561,200 @@ export interface WorkflowInstancesApi {
   bulkDelete(request: BulkDeleteWorkflowsRequest): Promise<BulkDeleteWorkflowsResponse>;
 
   bulkRetry(request: BulkRetryWorkflowsRequest): Promise<BulkRetryWorkflowsResponse>;
+}
+
+export interface WorkflowActivityCheckpointsApi {
+  listStale(page?: number, pageSize?: number, minimumAgeSeconds?: number, searchTerm?: string): Promise<WorkflowActivityCheckpointPage>;
+
+  listRecovered(page?: number, pageSize?: number, searchTerm?: string, recoveredByType?: string): Promise<WorkflowActivityCheckpointPage>;
+
+  listRunningForReview(page?: number, pageSize?: number, minimumAgeSeconds?: number, searchTerm?: string): Promise<RunningWorkflowReviewPage>;
+
+  listFaultedForReview(page?: number, pageSize?: number, minimumAgeSeconds?: number, searchTerm?: string): Promise<RunningWorkflowReviewPage>;
+
+  listByWorkflowInstance(workflowInstanceId: string): Promise<Array<WorkflowActivityCheckpoint>>;
+
+  getReview(workflowInstanceId: string): Promise<WorkflowInstanceCheckpointReview>;
+
+  recoverFromCheckpoint(workflowInstanceId: string, request: WorkflowCheckpointRecoveryRequest): Promise<WorkflowActivityRecoveryResult>;
+
+  reviveFaulted(workflowInstanceId: string, request: WorkflowCheckpointRecoveryRequest): Promise<WorkflowActivityRecoveryResult>;
+
+  restartFromActivity(workflowInstanceId: string, request: WorkflowRestartFromActivityRequest): Promise<WorkflowActivityRecoveryResult>;
+
+  requeueDelay(workflowInstanceId: string, activityId: string, reason?: string): Promise<WorkflowActivityRecoveryResult>;
+}
+
+export interface WorkflowActivityCheckpointPage {
+  items: Array<StaleWorkflowActivityCheckpoint>;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+export interface RunningWorkflowReviewPage {
+  items: Array<RunningWorkflowReviewItem>;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+export interface RunningWorkflowReviewItem {
+  workflowInstanceId: string;
+  tenantId?: string;
+  correlationId?: string;
+  definitionId?: string;
+  version: number;
+  workflowStatus: WorkflowStatus;
+  createdAt: Date;
+  lastExecutedAt?: Date;
+  lastExecutedActivityId?: string;
+  faultedActivityId?: string;
+  faultMessage?: string;
+  checkpointId?: string;
+  checkpointActivityId?: string;
+  checkpointActivityType?: string;
+  checkpointActivityName?: string;
+  checkpointStatus?: string;
+  checkpointLastSeenAt?: Date;
+  recoveredByType?: string;
+  recoveredById?: string;
+  recoveredByName?: string;
+  recoveredReason?: string;
+  recoveredOn?: Date;
+  ageSeconds: number;
+  checkpointAgeSeconds?: number;
+  reviewHint: string;
+  hasExecutingCheckpoint: boolean;
+  canRecoverFromCheckpoint: boolean;
+}
+
+export interface StaleWorkflowActivityCheckpoint {
+  checkpointId: string;
+  workflowInstanceId: string;
+  tenantId?: string;
+  correlationId?: string;
+  definitionId?: string;
+  version: number;
+  workflowStatus: WorkflowStatus;
+  activityId: string;
+  activityType?: string;
+  activityName?: string;
+  checkpointStatus: string;
+  startedAt: Date;
+  lastSeenAt: Date;
+  staleForSeconds: number;
+  transactionId?: string;
+  idempotencyKey?: string;
+  recoveredByType?: string;
+  recoveredById?: string;
+  recoveredByName?: string;
+  recoveredReason?: string;
+  recoveredOn?: Date;
+  reason: string;
+  canRecoverFromCheckpoint: boolean;
+  canRequeueDelay: boolean;
+}
+
+export interface WorkflowActivityCheckpoint {
+  id: string;
+  workflowInstanceId: string;
+  activityId: string;
+  activityType?: string;
+  activityName?: string;
+  executionLogId?: string;
+  startedAt: Date;
+  lastSeenAt: Date;
+  status: string;
+  transactionId?: string;
+  idempotencyKey?: string;
+  recoveredByType?: string;
+  recoveredById?: string;
+  recoveredByName?: string;
+  recoveredReason?: string;
+  recoveredOn?: Date;
+  createdOn: Date;
+  modifiedOn: Date;
+}
+
+export interface WorkflowInstanceCheckpointReview {
+  workflowInstanceId: string;
+  workflowStatus?: WorkflowStatus;
+  tenantId?: string;
+  correlationId?: string;
+  definitionId?: string;
+  version: number;
+  currentActivityId?: string;
+  currentActivityType?: string;
+  lastExecutedActivityId?: string;
+  faultedActivityId?: string;
+  faultMessage?: string;
+  faults: Array<WorkflowFaultReviewEntry>;
+  scheduledActivityCount: number;
+  blockingActivityCount: number;
+  scheduledActivities: Array<WorkflowActivityReference>;
+  blockingActivities: Array<WorkflowActivityReference>;
+  checkpoints: Array<WorkflowActivityCheckpoint>;
+  executionLogs: Array<WorkflowExecutionLogReviewEntry>;
+  recommendation: string;
+  hasExecutingCheckpoint: boolean;
+  canRecoverFromCheckpoint: boolean;
+}
+
+export interface WorkflowFaultReviewEntry {
+  faultedActivityId?: string;
+  message?: string;
+  resuming: boolean;
+  activityInput?: any;
+  exception?: SimpleExceptionReviewEntry;
+}
+
+export interface SimpleExceptionReviewEntry {
+  type?: string;
+  message?: string;
+  stackTrace?: string;
+  data?: {[key: string]: string};
+  innerException?: SimpleExceptionReviewEntry;
+}
+
+export interface WorkflowActivityReference {
+  activityId?: string;
+  activityType?: string;
+}
+
+export interface WorkflowExecutionLogReviewEntry {
+  id: string;
+  activityId: string;
+  activityType: string;
+  timestamp: Date;
+  eventName?: string;
+  message?: string;
+}
+
+export interface WorkflowCheckpointRecoveryRequest {
+  checkpointId?: string;
+  activityId?: string;
+  reason?: string;
+  recoveredByType?: string;
+  recoveredById?: string;
+  recoveredByName?: string;
+}
+
+export interface WorkflowRestartFromActivityRequest {
+  activityId: string;
+  reason?: string;
+  recoveredByType?: string;
+  recoveredById?: string;
+  recoveredByName?: string;
+}
+
+export interface WorkflowActivityRecoveryResult {
+  success: boolean;
+  message: string;
+  workflowInstanceId?: string;
+  activityId?: string;
+  checkpointId?: string;
+  hangfireJobId?: string;
 }
 
 export interface WorkflowExecutionLogApi {

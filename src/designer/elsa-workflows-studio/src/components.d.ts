@@ -249,6 +249,12 @@ export namespace Components {
         "serverUrl": string;
         "useX6Graphs": boolean;
     }
+    interface ElsaStudioStaleCheckpointsList {
+        "basePath": string;
+        "culture": string;
+        "history"?: RouterHistory;
+        "serverUrl": string;
+    }
     interface ElsaStudioWebhookDefinitionsEdit {
         "match": MatchResults;
     }
@@ -661,6 +667,12 @@ declare global {
         prototype: HTMLElsaStudioRootElement;
         new (): HTMLElsaStudioRootElement;
     };
+    interface HTMLElsaStudioStaleCheckpointsListElement extends Components.ElsaStudioStaleCheckpointsList, HTMLStencilElement {
+    }
+    var HTMLElsaStudioStaleCheckpointsListElement: {
+        prototype: HTMLElsaStudioStaleCheckpointsListElement;
+        new (): HTMLElsaStudioStaleCheckpointsListElement;
+    };
     interface HTMLElsaStudioWebhookDefinitionsEditElement extends Components.ElsaStudioWebhookDefinitionsEdit, HTMLStencilElement {
     }
     var HTMLElsaStudioWebhookDefinitionsEditElement: {
@@ -898,6 +910,7 @@ declare global {
         "elsa-studio-dashboard": HTMLElsaStudioDashboardElement;
         "elsa-studio-home": HTMLElsaStudioHomeElement;
         "elsa-studio-root": HTMLElsaStudioRootElement;
+        "elsa-studio-stale-checkpoints-list": HTMLElsaStudioStaleCheckpointsListElement;
         "elsa-studio-webhook-definitions-edit": HTMLElsaStudioWebhookDefinitionsEditElement;
         "elsa-studio-webhook-definitions-list": HTMLElsaStudioWebhookDefinitionsListElement;
         "elsa-studio-workflow-blueprint-view": HTMLElsaStudioWorkflowBlueprintViewElement;
@@ -1174,6 +1187,12 @@ declare namespace LocalJSX {
         "serverUrl"?: string;
         "useX6Graphs"?: boolean;
     }
+    interface ElsaStudioStaleCheckpointsList {
+        "basePath"?: string;
+        "culture"?: string;
+        "history"?: RouterHistory;
+        "serverUrl"?: string;
+    }
     interface ElsaStudioWebhookDefinitionsEdit {
         "match"?: MatchResults;
     }
@@ -1395,6 +1414,7 @@ declare namespace LocalJSX {
         "elsa-studio-dashboard": ElsaStudioDashboard;
         "elsa-studio-home": ElsaStudioHome;
         "elsa-studio-root": ElsaStudioRoot;
+        "elsa-studio-stale-checkpoints-list": ElsaStudioStaleCheckpointsList;
         "elsa-studio-webhook-definitions-edit": ElsaStudioWebhookDefinitionsEdit;
         "elsa-studio-webhook-definitions-list": ElsaStudioWebhookDefinitionsList;
         "elsa-studio-workflow-blueprint-view": ElsaStudioWorkflowBlueprintView;
@@ -1472,6 +1492,7 @@ declare module "@stencil/core" {
             "elsa-studio-dashboard": LocalJSX.ElsaStudioDashboard & JSXBase.HTMLAttributes<HTMLElsaStudioDashboardElement>;
             "elsa-studio-home": LocalJSX.ElsaStudioHome & JSXBase.HTMLAttributes<HTMLElsaStudioHomeElement>;
             "elsa-studio-root": LocalJSX.ElsaStudioRoot & JSXBase.HTMLAttributes<HTMLElsaStudioRootElement>;
+            "elsa-studio-stale-checkpoints-list": LocalJSX.ElsaStudioStaleCheckpointsList & JSXBase.HTMLAttributes<HTMLElsaStudioStaleCheckpointsListElement>;
             "elsa-studio-webhook-definitions-edit": LocalJSX.ElsaStudioWebhookDefinitionsEdit & JSXBase.HTMLAttributes<HTMLElsaStudioWebhookDefinitionsEditElement>;
             "elsa-studio-webhook-definitions-list": LocalJSX.ElsaStudioWebhookDefinitionsList & JSXBase.HTMLAttributes<HTMLElsaStudioWebhookDefinitionsListElement>;
             "elsa-studio-workflow-blueprint-view": LocalJSX.ElsaStudioWorkflowBlueprintView & JSXBase.HTMLAttributes<HTMLElsaStudioWorkflowBlueprintViewElement>;

@@ -3,12 +3,14 @@ export const resources = {
     default: {
       'WorkflowDefinitions': 'Workflow Definitions',
       'WorkflowInstances': 'Workflow Instances',
+      'StaleCheckpoints': 'Stale Checkpoints',
       'WorkflowRegistry': 'Workflow Registry',
       'WebhookDefinitions': 'Webhook Definitions',
     },
     menuItems: {
       'workflow-definitions': 'Workflow Definitions',
       'workflow-instances': 'Workflow Instances',
+      'stale-checkpoints': 'Stale Checkpoints',
       'workflow-registry': 'Workflow Registry',
     }
   },

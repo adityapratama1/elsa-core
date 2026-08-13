@@ -40,6 +40,8 @@ export class ElsaWorkflowInstanceListScreen {
   @State() selectedOrderByState?: OrderBy = OrderBy.Started;
   @State() selectedWorkflowInstanceIds: Array<string> = [];
   @State() selectAllChecked: boolean;
+  @State() workflowFilterOpen: boolean = false;
+  @State() workflowFilterSearchTerm: string = '';
 
   @State() currentPage: number = 0;
   @State() currentPageSize: number = ElsaWorkflowInstanceListScreen.DEFAULT_PAGE_SIZE;
@@ -152,7 +154,7 @@ export class ElsaWorkflowInstanceListScreen {
 
   private async loadWorkflowBlueprints() {
     const elsaClient = await this.createClient();
-    this.workflowBlueprints = await elsaClient.workflowRegistryApi.listAll({allVersions: true});
+    this.workflowBlueprints = await elsaClient.workflowRegistryApi.listAll({isLatest: true});
   }
 
   private async loadWorkflowInstances() {
@@ -161,14 +163,37 @@ export class ElsaWorkflowInstanceListScreen {
     this.currentPageSize = isNaN(this.currentPageSize) ? ElsaWorkflowInstanceListScreen.DEFAULT_PAGE_SIZE : this.currentPageSize;
     const elsaClient = await this.createClient();
     this.workflowInstances = await elsaClient.workflowInstancesApi.list(this.currentPage, this.currentPageSize, this.selectedWorkflowId, this.selectedWorkflowStatus, this.selectedOrderByState, this.currentSearchTerm, this.correlationId);
+    await this.loadMissingWorkflowBlueprintsForInstances();
     const maxPage = Math.floor(this.workflowInstances.totalCount / this.currentPageSize);
 
     if (this.currentPage > maxPage) {
       this.currentPage = maxPage;
       this.workflowInstances = await elsaClient.workflowInstancesApi.list(this.currentPage, this.currentPageSize, this.selectedWorkflowId, this.selectedWorkflowStatus, this.selectedOrderByState, this.currentSearchTerm, this.correlationId);
+      await this.loadMissingWorkflowBlueprintsForInstances();
     }
 
     this.setSelectAllIndeterminateState();
+  }
+
+  private async loadMissingWorkflowBlueprintsForInstances() {
+    const definitionVersionIds = array.uniq((this.workflowInstances.items || [])
+      .map(x => x.definitionVersionId)
+      .filter(x => !!x && !this.workflowBlueprints.find(y => y.versionId == x)));
+
+    if (definitionVersionIds.length == 0)
+      return;
+
+    const elsaClient = await this.createClient();
+    const missingBlueprints = await elsaClient.workflowRegistryApi.findManyByDefinitionVersionIds(definitionVersionIds);
+
+    if (missingBlueprints.length == 0)
+      return;
+
+    const existingVersionIds = this.workflowBlueprints.map(x => x.versionId);
+    this.workflowBlueprints = [
+      ...this.workflowBlueprints,
+      ...missingBlueprints.filter(x => !existingVersionIds.includes(x.versionId))
+    ];
   }
 
   createClient() {
@@ -407,6 +432,20 @@ export class ElsaWorkflowInstanceListScreen {
 
     this.currentSearchTerm = searchTerm.toString();
     await this.loadWorkflowInstances();
+  }
+
+  private async selectWorkflowFilter(e: Event, workflowId?: string) {
+    e.preventDefault();
+
+    this.workflowFilterOpen = false;
+    this.workflowFilterSearchTerm = '';
+
+    if (!!this.history) {
+      this.history.push(this.buildFilterUrl(workflowId, this.selectedWorkflowStatus, this.selectedOrderByState, null, this.selectedCorrelationId));
+      return;
+    }
+
+    await this.handleWorkflowIdChanged(workflowId);
   }
 
   onPaged = async (e: CustomEvent<PagerData>) => {
@@ -695,23 +734,14 @@ export class ElsaWorkflowInstanceListScreen {
     const selectedWorkflowStatus = this.selectedWorkflowStatus;
     const selectedOrderBy = this.selectedOrderByState;
     const history = this.history;
+    const searchTerm = (this.workflowFilterSearchTerm || '').trim().toLowerCase();
+    const filteredWorkflowBlueprints = latestWorkflowBlueprints.filter(x => {
+      if (!searchTerm)
+        return true;
 
-    let items: Array<DropdownButtonItem> = latestWorkflowBlueprints.map(x => {
       const displayName = !!x.displayName && x.displayName.length > 0 ? x.displayName : x.name || t('Untitled');
-      const item: DropdownButtonItem = {text: displayName, value: x.id, isSelected: x.id == selectedWorkflowId};
-
-      if (!!history)
-        item.url = this.buildFilterUrl(x.id, selectedWorkflowStatus, selectedOrderBy, null, selectedCorrelationId);
-
-      return item;
+      return `${displayName} ${x.name || ''} ${x.id || ''}`.toLowerCase().indexOf(searchTerm) >= 0;
     });
-
-    const allItem: DropdownButtonItem = {text: t('Filters.Workflow.All'), value: null, isSelected: !selectedWorkflowId};
-
-    if (!!history)
-      allItem.url = this.buildFilterUrl(null, selectedWorkflowStatus, selectedOrderBy, null, selectedCorrelationId);
-
-    items = [allItem, ...items];
 
     const renderIcon = function () {
       return <svg class="elsa-mr-3 elsa-h-5 elsa-w-5 elsa-text-gray-400" fill="none" viewBox="0 0 24 24"
@@ -724,9 +754,54 @@ export class ElsaWorkflowInstanceListScreen {
       </svg>;
     };
 
-    return <elsa-dropdown-button text={selectedWorkflowText} items={items} icon={renderIcon()}
-                                 origin={DropdownButtonOrigin.TopRight}
-                                 onItemSelected={e => this.handleWorkflowIdChanged(e.detail.value)}/>
+    const renderWorkflowOption = (workflowId?: string, displayName?: string, isSelected?: boolean) => {
+      const url = this.buildFilterUrl(workflowId, selectedWorkflowStatus, selectedOrderBy, null, selectedCorrelationId);
+      return (
+        <a href={!!history ? url : '#'}
+           class={`elsa-block elsa-px-4 elsa-py-2 elsa-text-sm hover:elsa-bg-gray-100 ${isSelected ? 'elsa-bg-blue-600 elsa-text-white hover:elsa-bg-blue-600' : 'elsa-text-gray-700'}`}
+           onClick={e => this.selectWorkflowFilter(e, workflowId)}>
+          {displayName}
+        </a>
+      );
+    };
+
+    return (
+      <div class="elsa-relative elsa-inline-block elsa-text-left">
+        <button type="button"
+                class="elsa-inline-flex elsa-justify-center elsa-items-center elsa-w-full elsa-rounded-md elsa-border elsa-border-gray-300 elsa-shadow-sm elsa-px-4 elsa-py-2 elsa-bg-white elsa-text-sm elsa-font-medium elsa-text-gray-700 hover:elsa-bg-gray-50 focus:elsa-outline-none focus:elsa-ring-2 focus:elsa-ring-offset-2 focus:elsa-ring-blue-500"
+                onClick={() => this.workflowFilterOpen = !this.workflowFilterOpen}>
+          {renderIcon()}
+          <span class="elsa-max-w-xs elsa-truncate">{selectedWorkflowText}</span>
+          <svg class="elsa-ml-2 elsa-h-5 elsa-w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        {this.workflowFilterOpen && (
+          <div class="elsa-origin-top-right elsa-absolute elsa-right-0 elsa-mt-2 elsa-w-80 elsa-rounded-md elsa-shadow-lg elsa-bg-white elsa-ring-1 elsa-ring-black elsa-ring-opacity-5 elsa-z-50">
+            <div class="elsa-p-3 elsa-border-b elsa-border-gray-200">
+              <label class="elsa-sr-only" htmlFor="workflow_filter_search">Search workflows</label>
+              <input id="workflow_filter_search"
+                     type="search"
+                     value={this.workflowFilterSearchTerm}
+                     placeholder="Search workflows"
+                     class="elsa-shadow-sm focus:elsa-ring-blue-500 focus:elsa-border-blue-500 elsa-block elsa-w-full sm:elsa-text-sm elsa-border-gray-300 elsa-rounded-md"
+                     onInput={e => this.workflowFilterSearchTerm = (e.target as HTMLInputElement).value}
+                     onKeyDown={e => e.stopPropagation()}/>
+            </div>
+            <div class="elsa-py-1 elsa-max-h-96 elsa-overflow-y-auto">
+              {renderWorkflowOption(null, t('Filters.Workflow.All'), !selectedWorkflowId)}
+              {filteredWorkflowBlueprints.length == 0 && (
+                <div class="elsa-px-4 elsa-py-3 elsa-text-sm elsa-text-gray-500">No workflows found.</div>
+              )}
+              {filteredWorkflowBlueprints.map(x => {
+                const displayName = !!x.displayName && x.displayName.length > 0 ? x.displayName : x.name || t('Untitled');
+                return renderWorkflowOption(x.id, displayName, x.id == selectedWorkflowId);
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   renderStatusFilter() {
