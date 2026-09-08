@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using AutoMapper;
 using Elsa.Builders;
 using Elsa.Caching;
 using Elsa.Persistence;
@@ -10,6 +11,10 @@ using Elsa.Providers.WorkflowStorage;
 using Elsa.Services;
 using Elsa.Services.Messaging;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Rebus.DataBus.InMem;
 using Rebus.Persistence.InMem;
@@ -27,7 +32,15 @@ namespace Elsa.Options
             AddAutoMapper = () =>
             {
                 // The profiles are added to AddWorkflowsCore so that they are not forgotten in case the AddAutoMapper function(option) is overridden.
-                services.AddAutoMapper(Enumerable.Empty<Assembly>(), ServiceLifetime.Singleton);
+                services.TryAddSingleton(sp =>
+                {
+                    var expression = sp.GetRequiredService<IOptions<MapperConfigurationExpression>>().Value;
+                    var loggerFactory = sp.GetService<ILoggerFactory>() ?? NullLoggerFactory.Instance;
+                    return new MapperConfiguration(expression, loggerFactory);
+                });
+                services.TryAddSingleton<IConfigurationProvider>(sp => sp.GetRequiredService<MapperConfiguration>());
+                services.TryAddSingleton<IMapper>(sp =>
+                    sp.GetRequiredService<MapperConfiguration>().CreateMapper(sp.GetService));
             };
 
             services.AddSingleton<InMemNetwork>();
