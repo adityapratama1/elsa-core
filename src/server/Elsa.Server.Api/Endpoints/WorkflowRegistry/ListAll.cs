@@ -4,11 +4,11 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Asp.Versioning;
-using AutoMapper;
 using Elsa.Models;
 using Elsa.Providers.Workflows;
 using Elsa.Server.Api.Helpers;
 using Elsa.Server.Api.Models;
+using Elsa.Server.Api.Mapping;
 using Elsa.Services;
 using Elsa.Services.Models;
 using Microsoft.AspNetCore.Http;
@@ -25,13 +25,11 @@ public class ListAll : Controller
 {
     private readonly IEnumerable<IWorkflowProvider> _workflowProviders;
     private readonly ITenantAccessor _tenantAccessor;
-    private readonly IMapper _mapper;
 
-    public ListAll(IEnumerable<IWorkflowProvider> workflowProviders, ITenantAccessor tenantAccessor, IMapper mapper)
+    public ListAll(IEnumerable<IWorkflowProvider> workflowProviders, ITenantAccessor tenantAccessor)
     {
         _workflowProviders = workflowProviders;
         _tenantAccessor = tenantAccessor;
-        _mapper = mapper;
     }
 
     [HttpGet]
@@ -47,7 +45,7 @@ public class ListAll : Controller
         version ??= VersionOptions.Latest;
         var tenantId = await _tenantAccessor.GetTenantIdAsync(cancellationToken);
         var workflowBlueprints = await ListAllAsync(tenantId, version.Value, cancellationToken).OrderBy(x => x.DisplayName ?? x.Name ?? "(Untitled)").ToListAsync(cancellationToken);
-        var model = _mapper.Map<IEnumerable<WorkflowBlueprintSummaryModel>>(workflowBlueprints).ToList();
+        var model = workflowBlueprints.Select(WorkflowApiModelMapper.ToSummary).ToList();
 
         return Ok(model).ConfigureForWorkflowDefinition();
     }

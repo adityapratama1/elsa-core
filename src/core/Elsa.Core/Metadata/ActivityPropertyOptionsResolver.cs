@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using AutoMapper.Internal;
 using Elsa.Attributes;
 using Elsa.Design;
 using Humanizer;
@@ -51,8 +50,9 @@ namespace Elsa.Metadata
 
         private bool TryGetEnumOptions(PropertyInfo activityPropertyInfo, out SelectList? selectList)
         {
-            var isNullable = activityPropertyInfo.PropertyType.IsNullableType();
-            var propertyType = isNullable ? activityPropertyInfo.PropertyType.GetTypeOfNullable() : activityPropertyInfo.PropertyType;
+            var nullableType = Nullable.GetUnderlyingType(activityPropertyInfo.PropertyType);
+            var isNullable = nullableType != null;
+            var propertyType = nullableType ?? activityPropertyInfo.PropertyType;
 
             selectList = null;
 

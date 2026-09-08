@@ -12,7 +12,6 @@ using Elsa.Design;
 using Elsa.Expressions;
 using Elsa.Handlers;
 using Elsa.HostedServices;
-using Elsa.Mapping;
 using Elsa.Metadata;
 using Elsa.Options;
 using Elsa.Persistence;
@@ -272,13 +271,8 @@ namespace Microsoft.Extensions.DependencyInjection
                 .AddCompetingConsumer<ExecuteWorkflowDefinitionRequestConsumer, ExecuteWorkflowDefinitionRequest>("ExecuteWorkflow")
                 .AddCompetingConsumer<ExecuteWorkflowInstanceRequestConsumer, ExecuteWorkflowInstanceRequest>("ExecuteWorkflow");
 
-            // AutoMapper.
-            services
-                .AddAutoMapperProfile<NodaTimeProfile>()
-                .AddAutoMapperProfile<CloningProfile>()
-                .AddAutoMapperProfile<ExceptionProfile>()
-                .AddTransient<ExceptionConverter>()
-                .AddSingleton<ICloner, AutoMapperCloner>();
+            // Domain cloning is deliberately independent from a global object mapper.
+            services.AddSingleton<ICloner, ContentSerializerCloner>();
 
             // Caching.
             services

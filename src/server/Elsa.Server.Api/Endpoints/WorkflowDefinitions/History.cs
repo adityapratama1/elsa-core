@@ -1,13 +1,14 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Asp.Versioning;
-using AutoMapper;
 using Elsa.Models;
 using Elsa.Persistence;
 using Elsa.Persistence.Specifications;
 using Elsa.Persistence.Specifications.WorkflowDefinitions;
 using Elsa.Server.Api.Helpers;
+using Elsa.Server.Api.Mapping;
 using Elsa.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -22,13 +23,11 @@ namespace Elsa.Server.Api.Endpoints.WorkflowDefinitions
     public class History : Controller
     {
         private readonly IWorkflowDefinitionStore _workflowDefinitionStore;
-        private readonly IMapper _mapper;
         private readonly ITenantAccessor _tenantAccessor;
 
-        public History(IWorkflowDefinitionStore workflowDefinitionStore, IMapper mapper, ITenantAccessor tenantAccessor)
+        public History(IWorkflowDefinitionStore workflowDefinitionStore, ITenantAccessor tenantAccessor)
         {
             _workflowDefinitionStore = workflowDefinitionStore;
-            _mapper = mapper;
             _tenantAccessor = tenantAccessor;
         }
 
@@ -45,7 +44,7 @@ namespace Elsa.Server.Api.Endpoints.WorkflowDefinitions
             var tenantId = await _tenantAccessor.GetTenantIdAsync(cancellationToken);
             var specification = GetSpecification(definitionId).And(new TenantSpecification<WorkflowDefinition>(tenantId));
             var definitions = await _workflowDefinitionStore.FindManyAsync(specification, new OrderBy<WorkflowDefinition>(x => x.Version, SortDirection.Descending), cancellationToken: cancellationToken);
-            var versionModels = _mapper.Map<IList<WorkflowDefinitionVersionModel>>(definitions);
+            var versionModels = definitions.Select(WorkflowApiModelMapper.ToVersionModel).ToList();
 
             var model = new
             {

@@ -4,7 +4,6 @@ using Elsa.Models;
 using Elsa.Server.Api;
 using Elsa.Server.Api.Extensions;
 using Elsa.Server.Api.Extensions.SchemaFilters;
-using Elsa.Server.Api.Mapping;
 using Elsa.Server.Api.Services;
 using Elsa.Server.Api.Swagger.Examples;
 #if NET10_0_OR_GREATER
@@ -52,11 +51,8 @@ namespace Microsoft.Extensions.DependencyInjection
                 });
 
             services
-                .AddSingleton<ConnectionConverter>()
-                .AddSingleton<ActivityBlueprintConverter>()
                 .AddScoped<IWorkflowBlueprintMapper, WorkflowBlueprintMapper>()
                 .AddSingleton<IEndpointContentSerializerSettingsProvider, EndpointContentSerializerSettingsProvider>()
-                .AddAutoMapperProfile<AutoMapperProfile>()
                 .AddSignalR();
             services.AddMvc(options =>
             {

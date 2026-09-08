@@ -3,7 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Asp.Versioning;
-using AutoMapper;
+using Elsa.Server.Api.Mapping;
 using Elsa.Server.Api.Helpers;
 using Elsa.Server.Api.Models;
 using Elsa.Services;
@@ -21,12 +21,10 @@ namespace Elsa.Server.Api.Endpoints.WorkflowRegistry
     public class ListByDefinitionVersionIds : Controller
     {
         private readonly IWorkflowRegistry _workflowRegistry;
-        private readonly IMapper _mapper;
 
-        public ListByDefinitionVersionIds(IWorkflowRegistry workflowRegistry, IMapper mapper)
+        public ListByDefinitionVersionIds(IWorkflowRegistry workflowRegistry)
         {
             _workflowRegistry = workflowRegistry;
-            _mapper = mapper;
         }
 
         [HttpGet]
@@ -41,7 +39,7 @@ namespace Elsa.Server.Api.Endpoints.WorkflowRegistry
         {
             var idList = ids.Split(",");
             var workflowBlueprints = await _workflowRegistry.FindManyByDefinitionVersionIds(idList, cancellationToken).ToList();
-            var mappedItems = _mapper.Map<IEnumerable<WorkflowBlueprintSummaryModel>>(workflowBlueprints).ToList();
+            var mappedItems = workflowBlueprints.Select(WorkflowApiModelMapper.ToSummary).ToList();
 
             return Ok(mappedItems).ConfigureForWorkflowDefinition();
         }

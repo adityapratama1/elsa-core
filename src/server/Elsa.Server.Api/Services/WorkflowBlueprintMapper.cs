@@ -2,7 +2,6 @@
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper;
 using Elsa.Events;
 using Elsa.Exceptions;
 using Elsa.Metadata;
@@ -20,15 +19,13 @@ namespace Elsa.Server.Api.Services
     {
         private readonly IWorkflowBlueprintReflector _workflowBlueprintReflector;
         private readonly IActivityTypeService _activityTypeService;
-        private readonly IMapper _mapper;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly IMediator _mediator;
 
-        public WorkflowBlueprintMapper(IWorkflowBlueprintReflector workflowBlueprintReflector, IActivityTypeService activityTypeService, IMapper mapper, IServiceScopeFactory serviceScopeFactory, IMediator mediator)
+        public WorkflowBlueprintMapper(IWorkflowBlueprintReflector workflowBlueprintReflector, IActivityTypeService activityTypeService, IServiceScopeFactory serviceScopeFactory, IMediator mediator)
         {
             _workflowBlueprintReflector = workflowBlueprintReflector;
             _activityTypeService = activityTypeService;
-            _mapper = mapper;
             _serviceScopeFactory = serviceScopeFactory;
             _mediator = mediator;
         }
@@ -42,11 +39,7 @@ namespace Elsa.Server.Api.Services
             var inputPropertyDictionary = activityProperties.ToDictionary(x => x.Id, x => x.Item2.InputProperties);
             var outputPropertyDictionary = activityProperties.ToDictionary(x => x.Id, x => x.Item2.OutputProperties);
 
-            return _mapper.Map<WorkflowBlueprintModel>(workflowBlueprint, options =>
-            {
-                options.Items[ActivityBlueprintConverter.ActivityInputPropertiesKey] = inputPropertyDictionary;
-                options.Items[ActivityBlueprintConverter.ActivityOutputPropertiesKey] = outputPropertyDictionary;
-            });
+            return workflowBlueprint.ToModel(inputPropertyDictionary, outputPropertyDictionary);
         }
 
         private async ValueTask<(Variables InputProperties, Variables OutputProperties)> GetActivityPropertiesAsync(IWorkflowBlueprintWrapper workflowBlueprintWrapper, IActivityBlueprintWrapper activityBlueprintWrapper, CancellationToken cancellationToken)

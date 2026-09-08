@@ -5,7 +5,6 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper.Internal;
 using Elsa.Models;
 using Elsa.Scripting.JavaScript.Events;
 using Elsa.Scripting.JavaScript.Models;
@@ -70,9 +69,9 @@ namespace Elsa.Scripting.JavaScript.Providers
 
         private static void CollectType(Type type, ISet<Type> collectedTypes)
         {
-            if (type.IsNullableType())
+            if (Nullable.GetUnderlyingType(type) is { } underlyingType)
             {
-                CollectType(type.GetTypeOfNullable(), collectedTypes);
+                CollectType(underlyingType, collectedTypes);
                 return;
             }
 
@@ -134,7 +133,7 @@ namespace Elsa.Scripting.JavaScript.Providers
             foreach (var property in properties)
             {
                 var typeScriptType = GetTypeScriptType(context, property.PropertyType, collectedTypes);
-                var propertyName = property.PropertyType.IsNullableType() ? $"{property.Name}?" : property.Name;
+                var propertyName = Nullable.GetUnderlyingType(property.PropertyType) != null ? $"{property.Name}?" : property.Name;
                 var propertyIsStatic = property.GetGetMethod().IsStatic;
 
                 if(propertyIsStatic)
@@ -173,8 +172,7 @@ namespace Elsa.Scripting.JavaScript.Providers
 
         private string GetTypeScriptType(TypeDefinitionContext context, Type type, ISet<Type> collectedTypes, ITypeDefinitionProvider? excludeProvider = default)
         {
-            if (type.IsNullableType())
-                type = type.GetTypeOfNullable();
+            type = Nullable.GetUnderlyingType(type) ?? type;
 
             var providers = _providers;
 

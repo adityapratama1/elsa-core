@@ -1,6 +1,5 @@
 using System.Threading;
 using System.Threading.Tasks;
-using AutoMapper;
 using Elsa.Events;
 using Elsa.Models;
 using Elsa.Services.Models;
@@ -12,12 +11,10 @@ namespace Elsa.Handlers
 {
     public class WriteWorkflowExecutionLog : INotificationHandler<ActivityExecuting>, INotificationHandler<ActivityExecutionResultExecuted>, INotificationHandler<ActivityFaulted>
     {
-        private readonly IMapper _mapper;
         private readonly JsonSerializer _jsonSerializer;
 
-        public WriteWorkflowExecutionLog(IMapper mapper, JsonSerializer jsonSerializer)
+        public WriteWorkflowExecutionLog(JsonSerializer jsonSerializer)
         {
-            _mapper = mapper;
             _jsonSerializer = jsonSerializer;
         }
 
@@ -47,7 +44,7 @@ namespace Elsa.Handlers
         public Task Handle(ActivityFaulted notification, CancellationToken cancellationToken)
         {
             var exception = notification.Exception;
-            var exceptionModel = _mapper.Map<SimpleException>(exception);
+            var exceptionModel = SimpleException.FromException(exception);
 
             var data = new
             {

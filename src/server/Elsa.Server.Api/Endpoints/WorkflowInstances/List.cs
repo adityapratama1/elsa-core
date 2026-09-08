@@ -3,13 +3,13 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Asp.Versioning;
-using AutoMapper;
 using Elsa.Models;
 using Elsa.Persistence;
 using Elsa.Persistence.Specifications;
 using Elsa.Persistence.Specifications.WorkflowInstances;
 using Elsa.Serialization;
 using Elsa.Server.Api.Models;
+using Elsa.Server.Api.Mapping;
 using Elsa.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -26,16 +26,14 @@ namespace Elsa.Server.Api.Endpoints.WorkflowInstances
     public class List : Controller
     {
         private readonly IWorkflowInstanceStore _workflowInstanceStore;
-        private readonly IMapper _mapper;
         private readonly IContentSerializer _contentSerializer;
         private readonly ILogger _logger;
         private readonly Stopwatch _stopwatch;
         private readonly ITenantAccessor _tenantAccessor;
 
-        public List(IWorkflowInstanceStore workflowInstanceStore, IMapper mapper, IContentSerializer contentSerializer, ILogger<List> logger, ITenantAccessor tenantAccessor)
+        public List(IWorkflowInstanceStore workflowInstanceStore, IContentSerializer contentSerializer, ILogger<List> logger, ITenantAccessor tenantAccessor)
         {
             _workflowInstanceStore = workflowInstanceStore;
-            _mapper = mapper;
             _contentSerializer = contentSerializer;
             _logger = logger;
             _stopwatch = new Stopwatch();
@@ -94,7 +92,7 @@ namespace Elsa.Server.Api.Endpoints.WorkflowInstances
             var totalCount = await _workflowInstanceStore.CountAsync(specification, cancellationToken: cancellationToken);
             var paging = Paging.Page(page, pageSize);
             var workflowInstances = await _workflowInstanceStore.FindManyAsync(specification, orderBySpecification, paging, cancellationToken).ToList();
-            var items = _mapper.Map<ICollection<WorkflowInstanceSummaryModel>>(workflowInstances);
+            var items = workflowInstances.ConvertAll(WorkflowApiModelMapper.ToSummary);
             _stopwatch.Stop();
             _logger.LogDebug("Handle took {TimeElapsed}", _stopwatch.Elapsed);
             var model = new PagedList<WorkflowInstanceSummaryModel>(items, page, pageSize, totalCount);
