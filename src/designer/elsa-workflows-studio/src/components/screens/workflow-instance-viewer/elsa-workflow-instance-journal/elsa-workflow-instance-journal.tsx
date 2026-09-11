@@ -19,6 +19,14 @@ interface Tab {
   view: () => any;
 }
 
+interface ExternalPayloadDescriptor {
+  id: string;
+  path: Array<string>;
+  bytes: number;
+  encoding: string;
+  independent: boolean;
+}
+
 @Component({
   tag: 'elsa-workflow-instance-journal',
   shadow: false,
@@ -38,9 +46,15 @@ export class ElsaWorkflowInstanceJournal {
   @State() selectedRecordId?: string;
   @State() selectedActivityId?: string;
   @State() selectedTabId: string = 'journal';
+  @State() payloadTitle?: string;
+  @State() payloadValue?: any;
+  @State() payloadLoading: boolean = false;
+  @State() payloadError?: string;
+  @State() expandedPayloadPaths: Array<string> = ['$'];
 
   el: HTMLElement;
   flyoutPanel: HTMLElsaFlyoutPanelElement;
+  payloadDialog: HTMLElsaModalDialogElement;
 
   @Method()
   async selectActivityRecord(activityId?: string) {
@@ -113,6 +127,7 @@ export class ElsaWorkflowInstanceJournal {
     return (
       <Host>
         {this.renderPanel()}
+        {this.renderPayloadDialog()}
         <elsa-workflow-definition-editor-notifications/>
       </Host>
     );
@@ -361,11 +376,21 @@ export class ElsaWorkflowInstanceJournal {
       return <p class="elsa-mt-4">No activity selected</p>;
 
     // Hide expressions field from properties so that we only display the evaluated value.
-    const model = {...activityModel, properties: activityModel.properties.map(x => ({name: x.name, value: x.value}))}
+    const model = {...activityModel, properties: undefined};
+    const persistedActivityState = this.workflowInstance?.activityData?.[this.selectedActivityId] || {};
+    const displayedState = Object.keys(persistedActivityState).length > 0
+      ? persistedActivityState
+      : activityModel.properties.reduce((values, property) => {
+        values[property.name] = property.value;
+        return values;
+      }, {});
 
     return (
       <div class="elsa-mt-4">
         <pre>{JSON.stringify(model, null, 2)}</pre>
+        <dl class="elsa-mt-4 elsa-border-t elsa-border-gray-200 elsa-divide-y elsa-divide-gray-200">
+          {Object.keys(displayedState).map(name => this.renderInspectableValue(name, displayedState[name]))}
+        </dl>
       </div>
     );
   };
@@ -432,15 +457,220 @@ export class ElsaWorkflowInstanceJournal {
   };
 
   renderVariablesTab = () => {
-    const { workflowInstance, workflowBlueprint } = this;
+    const { workflowInstance } = this;
     const { variables } = workflowInstance;
+    const values = variables?.data || {};
 
     return (
       <dl class="elsa-border-b elsa-border-gray-200 elsa-divide-y elsa-divide-gray-200">
-        <div class="elsa-py-3 elsa-text-sm elsa-font-medium">
-          {variables?.data ? <pre>{JSON.stringify(variables?.data, null, 2)}</pre> : '-'}
-          </div>
+        {Object.keys(values).length > 0
+          ? Object.keys(values).map(name => this.renderInspectableValue(name, values[name]))
+          : <div class="elsa-py-3 elsa-text-sm elsa-font-medium">-</div>}
       </dl>
     );
   };
+
+  getExternalPayload(value: any): ExternalPayloadDescriptor | undefined {
+    const descriptor = value?.$externalPayload;
+    return descriptor && typeof descriptor.id === 'string' ? descriptor : undefined;
+  }
+
+  formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes < 0) return '-';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  }
+
+  renderInspectableValue(name: string, value: any) {
+    const descriptor = this.getExternalPayload(value);
+    if (!descriptor) {
+      const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+      return (
+        <div class="elsa-py-3 elsa-text-sm">
+          <dt class="elsa-font-medium elsa-text-gray-500 elsa-break-all">{name}</dt>
+          <dd class="elsa-mt-1 elsa-text-gray-900 elsa-overflow-x-auto">
+            <pre>{text == null ? 'null' : text}</pre>
+          </dd>
+        </div>
+      );
+    }
+
+    return (
+      <div class="elsa-py-3 elsa-text-sm">
+        <dt class="elsa-font-medium elsa-text-gray-500 elsa-break-all">{name}</dt>
+        <dd class="elsa-mt-2 elsa-rounded-md elsa-border elsa-border-blue-200 elsa-bg-blue-50 elsa-p-3">
+          <div class="elsa-flex elsa-items-start elsa-justify-between elsa-gap-4">
+            <div class="elsa-min-w-0">
+              <div class="elsa-font-medium elsa-text-blue-900">External payload reference</div>
+              <div class="elsa-mt-1 elsa-text-xs elsa-text-blue-700 elsa-break-all">ID: {descriptor.id}</div>
+              <div class="elsa-text-xs elsa-text-blue-700 elsa-break-all">Path: {descriptor.path?.join(' / ')}</div>
+              <div class="elsa-text-xs elsa-text-blue-700">{this.formatBytes(descriptor.bytes)} · {descriptor.encoding}</div>
+            </div>
+            <div class="elsa-flex elsa-flex-shrink-0 elsa-gap-2">
+              <button type="button" title="View payload" aria-label={`View ${name}`}
+                      onClick={() => this.showPayload(name, descriptor)}
+                      class="elsa-inline-flex elsa-items-center elsa-rounded-md elsa-border elsa-border-blue-300 elsa-bg-white elsa-p-2 elsa-text-blue-700 hover:elsa-bg-blue-100">
+                <svg class="elsa-h-5 elsa-w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/>
+                </svg>
+              </button>
+              <button type="button" title="Download payload" aria-label={`Download ${name}`}
+                      onClick={() => this.downloadPayload(name, descriptor)}
+                      class="elsa-inline-flex elsa-items-center elsa-rounded-md elsa-border elsa-border-blue-300 elsa-bg-white elsa-p-2 elsa-text-blue-700 hover:elsa-bg-blue-100">
+                <svg class="elsa-h-5 elsa-w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </dd>
+      </div>
+    );
+  }
+
+  async showPayload(name: string, descriptor: ExternalPayloadDescriptor) {
+    this.payloadTitle = name;
+    this.payloadValue = undefined;
+    this.payloadError = undefined;
+    this.payloadLoading = true;
+    this.expandedPayloadPaths = ['$'];
+    await this.payloadDialog.show(true);
+    try {
+      const client = await createElsaClient(this.serverUrl);
+      this.payloadValue = await client.workflowInstancesApi.getStoragePayload(this.workflowInstanceId, descriptor.id);
+    } catch (e) {
+      this.payloadError = 'Unable to load the external payload.';
+    } finally {
+      this.payloadLoading = false;
+    }
+  }
+
+  async downloadPayload(name: string, descriptor: ExternalPayloadDescriptor) {
+    try {
+      const client = await createElsaClient(this.serverUrl);
+      const value = await client.workflowInstancesApi.getStoragePayload(this.workflowInstanceId, descriptor.id);
+      const blob = new Blob([JSON.stringify(value, null, 2)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${name || 'workflow-payload'}-${descriptor.id}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      this.payloadTitle = name;
+      this.payloadValue = undefined;
+      this.payloadError = 'Unable to download the external payload.';
+      this.payloadLoading = false;
+      await this.payloadDialog.show(true);
+    }
+  }
+
+  renderPayloadDialog() {
+    return (
+      <elsa-modal-dialog dialogWidth="90vw" ref={el => this.payloadDialog = el}>
+        <div slot="content" class="elsa-p-6">
+          <h3 class="elsa-text-lg elsa-font-medium elsa-text-gray-900">External payload: {this.payloadTitle}</h3>
+          <div class="elsa-mt-4 elsa-flex elsa-justify-end">
+            <button type="button" onClick={() => this.expandedPayloadPaths = ['$']}
+                    class="elsa-rounded-md elsa-border elsa-border-gray-300 elsa-bg-white elsa-px-3 elsa-py-1 elsa-text-xs elsa-font-medium elsa-text-gray-700 hover:elsa-bg-gray-50">
+              Collapse all
+            </button>
+          </div>
+          <div class="elsa-mt-2 elsa-overflow-auto elsa-rounded-md elsa-p-4 elsa-text-sm"
+               style={{background: '#111827', color: '#f9fafb', 'max-height': '75vh'}}>
+            {this.payloadLoading
+              ? <span>Downloading payload…</span>
+              : this.payloadError
+                ? <span class="elsa-text-red-300">{this.payloadError}</span>
+                : this.renderJsonTree(this.payloadValue, '$')}
+          </div>
+        </div>
+      </elsa-modal-dialog>
+    );
+  }
+
+  togglePayloadPath(path: string) {
+    this.expandedPayloadPaths = this.expandedPayloadPaths.includes(path)
+      ? this.expandedPayloadPaths.filter(x => x !== path && !x.startsWith(`${path}.`) && !x.startsWith(`${path}[`))
+      : [...this.expandedPayloadPaths, path];
+  }
+
+  renderJsonTree(value: any, path: string, label?: string) {
+    if (value === null || typeof value !== 'object') {
+      const formatted = typeof value === 'string' ? JSON.stringify(value) : String(value);
+      return (
+        <div class="elsa-font-mono elsa-leading-6 elsa-break-all">
+          {label != null ? <span style={{color: '#93c5fd'}}>{JSON.stringify(label)}: </span> : undefined}
+          <span style={{color: typeof value === 'string' ? '#a7f3d0' : '#fcd34d'}}>{formatted}</span>
+        </div>
+      );
+    }
+
+    const isArray = Array.isArray(value);
+    const entryCount = isArray ? value.length : Object.keys(value).length;
+    const expanded = this.expandedPayloadPaths.includes(path);
+    const summary = `${isArray ? 'Array' : 'Object'}(${entryCount})`;
+
+    return (
+      <div class="elsa-font-mono elsa-leading-6">
+        <button type="button" onClick={() => this.togglePayloadPath(path)}
+                class="elsa-flex elsa-items-center elsa-gap-2 elsa-text-left"
+                style={{color: '#f9fafb', background: 'transparent'}}
+                aria-expanded={expanded ? 'true' : 'false'}>
+          <span class="elsa-inline-block elsa-w-3">{expanded ? '▾' : '▸'}</span>
+          {label != null ? <span style={{color: '#93c5fd'}}>{JSON.stringify(label)}:</span> : undefined}
+          <span style={{color: '#9ca3af'}}>{summary}</span>
+        </button>
+        {expanded ? (
+          <div class="elsa-ml-4 elsa-pl-3" style={{'border-left': '1px solid #374151'}}>
+            {isArray && value.length > 100
+              ? this.renderJsonArrayRanges(value, path)
+              : (isArray ? value.map((child, index) => [String(index), child]) : Object.entries(value))
+                .map(([key, child]) => {
+                  const childPath = isArray ? `${path}[${key}]` : `${path}.${JSON.stringify(key)}`;
+                  return this.renderJsonTree(child, childPath, key);
+                })}
+          </div>
+        ) : undefined}
+      </div>
+    );
+  }
+
+  renderJsonArrayRanges(values: Array<any>, parentPath: string) {
+    const blockSize = 100;
+    const ranges = [];
+    for (let start = 0; start < values.length; start += blockSize)
+      ranges.push([start, Math.min(start + blockSize, values.length)]);
+
+    return ranges.map(([start, end]) => {
+      const rangePath = `${parentPath}[${start}:${end}]`;
+      const expanded = this.expandedPayloadPaths.includes(rangePath);
+      return (
+        <div>
+          <button type="button" onClick={() => this.togglePayloadPath(rangePath)}
+                  class="elsa-flex elsa-items-center elsa-gap-2 elsa-text-left"
+                  style={{color: '#f9fafb', background: 'transparent'}}
+                  aria-expanded={expanded ? 'true' : 'false'}>
+            <span class="elsa-inline-block elsa-w-3">{expanded ? '▾' : '▸'}</span>
+            <span style={{color: '#c4b5fd'}}>[{start} … {end - 1}]</span>
+            <span style={{color: '#9ca3af'}}>Array block({end - start})</span>
+          </button>
+          {expanded ? (
+            <div class="elsa-ml-4 elsa-pl-3" style={{'border-left': '1px solid #374151'}}>
+              {values.slice(start, end).map((child, offset) => {
+                const index = start + offset;
+                return this.renderJsonTree(child, `${parentPath}[${index}]`, String(index));
+              })}
+            </div>
+          ) : undefined}
+        </div>
+      );
+    });
+  }
 }

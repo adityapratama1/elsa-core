@@ -100,7 +100,9 @@ export class ElsaWorkflowInstanceViewerScreen {
 
     if (workflowInstanceId && workflowInstanceId.length > 0) {
       try {
-        workflowInstance = await client.workflowInstancesApi.get(workflowInstanceId);
+        // The dashboard is an inspection surface. Keep externally stored values as
+        // references and fetch an individual value only when the user asks to view it.
+        workflowInstance = await client.workflowInstancesApi.getStorageView(workflowInstanceId);
         workflowBlueprint = await client.workflowRegistryApi.get(workflowInstance.definitionId, {version: workflowInstance.version});
       } catch {
         console.warn(`The specified workflow definition does not exist. Creating a new one.`);

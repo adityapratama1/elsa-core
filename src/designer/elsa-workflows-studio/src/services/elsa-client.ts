@@ -238,11 +238,19 @@ export const createElsaClient = async function (serverUrl: string): Promise<Elsa
 
         const queryStringItems = collection.map(queryString, (v, k) => `${k}=${v}`);
         const queryStringText = queryStringItems.length > 0 ? `?${queryStringItems.join('&')}` : '';
-        const response = await httpClient.get<PagedList<WorkflowInstanceSummary>>(`v1/workflow-instances${queryStringText}`);
+        const response = await httpClient.get<PagedList<WorkflowInstanceSummary>>(`v1/workflow-instances/storage${queryStringText}`);
         return response.data;
       },
       get: async id => {
         const response = await httpClient.get(`v1/workflow-instances/${id}`);
+        return response.data;
+      },
+      getStorageView: async id => {
+        const response = await httpClient.get(`v1/workflow-instances/${id}/storage`);
+        return response.data;
+      },
+      getStoragePayload: async (id, payloadId) => {
+        const response = await httpClient.get(`v1/workflow-instances/${id}/storage/payloads/${payloadId}`);
         return response.data;
       },
       cancel: async id => {
@@ -549,6 +557,10 @@ export interface WorkflowInstancesApi {
   list(page?: number, pageSize?: number, workflowDefinitionId?: string, workflowStatus?: WorkflowStatus, orderBy?: OrderBy, searchTerm?: string, correlationId?: string): Promise<PagedList<WorkflowInstanceSummary>>;
 
   get(id: string): Promise<WorkflowInstance>;
+
+  getStorageView(id: string): Promise<WorkflowInstance>;
+
+  getStoragePayload(id: string, payloadId: string): Promise<any>;
 
   cancel(id: string): Promise<void>;
 
