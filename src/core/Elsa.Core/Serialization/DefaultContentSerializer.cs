@@ -31,7 +31,7 @@ namespace Elsa.Serialization
             settings.PreserveReferencesHandling = PreserveReferencesHandling.Objects;
             settings.TypeNameAssemblyFormatHandling = TypeNameAssemblyFormatHandling.Simple;
             settings.TypeNameHandling = TypeNameHandling.Auto;
-            settings.ContractResolver = new DefaultContractResolver
+            settings.ContractResolver = new VariableDictionaryContractResolver
             {
                 NamingStrategy = new CamelCaseNamingStrategy
                 {

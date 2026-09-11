@@ -146,8 +146,9 @@ namespace Elsa.Services.Models
 
         public void SetVariable(string name, object? value) => WorkflowInstance.Variables.Set(name, value);
         public T? GetVariable<T>() => GetVariable<T>(typeof(T).Name);
-        public T? GetVariable<T>(string name) => GetMergedVariables().Get<T>(name);
-        public bool HasVariable(string name) => GetMergedVariables().Has(name);
+        public T? GetVariable<T>(string name) => GetVariable(name).ConvertTo<T>();
+        public bool HasVariable(string name) => TransientState?.Data.ContainsKey(name) == true ||
+            WorkflowInstance.Scopes.Any(x => x.Variables.Has(name)) || WorkflowInstance.Variables.Has(name);
 
         /// <summary>
         /// Gets a variable from across all scopes, starting with the current scope, going up each scope until the requested variable is found.
@@ -155,9 +156,16 @@ namespace Elsa.Services.Models
         /// <remarks>Use <see cref="GetWorkflowVariable"/>if you want to access a workflow variable directly without going through the scopes.</remarks>
         public object? GetVariable(string name)
         {
-            var mergedVariables = GetMergedVariables();
-            return mergedVariables.Get(name);
+            // Match merged scope AND transient-state precedence without loading unrelated values.
+            if (TransientState?.Data.TryGetValue(name, out var transientValue) == true) return transientValue;
+            foreach (var scope in WorkflowInstance.Scopes.AsEnumerable().Reverse())
+                if (scope.Variables.Has(name)) return scope.Variables.Get(name);
+            return WorkflowInstance.Variables.Get(name);
         }
+
+        public IEnumerable<string> GetVariableNames() => WorkflowInstance.Variables.Data.Keys
+            .Concat(WorkflowInstance.Scopes.SelectMany(x => x.Variables.Data.Keys))
+            .Concat(TransientState?.Data.Keys ?? Enumerable.Empty<string>()).Distinct();
 
         /// <summary>
         /// Gets all variables merged across all scopes.

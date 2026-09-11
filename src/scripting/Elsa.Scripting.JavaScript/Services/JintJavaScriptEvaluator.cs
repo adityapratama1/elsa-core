@@ -37,13 +37,13 @@ namespace Elsa.Scripting.JavaScript.Services
             Action<Engine>? configureEngine = default,
             CancellationToken cancellationToken = default)
         {
-            var engine = await GetConfiguredEngine(configureEngine, context, cancellationToken);
+            var engine = await GetConfiguredEngine(configureEngine, context, expression, cancellationToken);
             var result = ExecuteExpressionAndGetResult(engine, expression);
 
             return _resultConverter.ConvertToDesiredType(result, returnType);
         }
 
-        private async Task<Engine> GetConfiguredEngine(Action<Engine>? configureEngine, ActivityExecutionContext context, CancellationToken cancellationToken)
+        private async Task<Engine> GetConfiguredEngine(Action<Engine>? configureEngine, ActivityExecutionContext context, string expression, CancellationToken cancellationToken)
         {
             var engine = new Engine(async opts =>
             {
@@ -57,7 +57,7 @@ namespace Elsa.Scripting.JavaScript.Services
             configureEngine?.Invoke(engine);
 
             // Listeners invoked by the mediator might further-configure the engine
-            await _mediator.Publish(new EvaluatingJavaScriptExpression(engine, context), cancellationToken);
+            await _mediator.Publish(new EvaluatingJavaScriptExpression(engine, context, expression), cancellationToken);
 
             return engine;
         }

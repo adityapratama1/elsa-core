@@ -99,10 +99,20 @@ namespace Elsa.Scripting.JavaScript.Handlers
             engine.RegisterType<Encoding>();
 
             // Workflow variables.
-            var variables = workflowExecutionContext.GetMergedVariables();
-
-            foreach (var variable in variables.Data)
-                engine.SetValue(variable.Key, ProcessVariable(variable.Value));
+            var hasDeferredVariables = workflowInstance.Variables.Data is DeferredVariableDictionary ||
+                workflowInstance.Scopes.Any(x => x.Variables.Data is DeferredVariableDictionary);
+            if (hasDeferredVariables)
+            {
+                var bind = Services.DeferredVariableBinding.Create(engine);
+                foreach (var name in workflowExecutionContext.GetVariableNames())
+                    bind(name, () => ProcessVariable(activityExecutionContext.GetVariable(name)));
+            }
+            else
+            {
+                var variables = workflowExecutionContext.GetMergedVariables();
+                foreach (var variable in variables.Data)
+                    engine.SetValue(variable.Key, ProcessVariable(variable.Value));
+            }
 
 
             // DEPRECATED: The following only works when activity state is stored as part of the workflow instance itself.
