@@ -5,6 +5,13 @@
 <!-- Auto Generated Below -->
 
 
+## Properties
+
+| Property      | Attribute      | Description | Type     | Default  |
+| ------------- | -------------- | ----------- | -------- | -------- |
+| `dialogWidth` | `dialog-width` |             | `string` | `'56em'` |
+
+
 ## Events
 
 | Event    | Description | Type               |
@@ -46,6 +53,7 @@ Type: `Promise<void>`
  - [elsa-secret-editor-modal](../../../modules/credential-manager/elsa-secret-editor-modal)
  - [elsa-secrets-picker-modal](../../../modules/credential-manager/elsa-secrets-picker-modal)
  - [elsa-workflow-definition-editor-screen](../../screens/workflow-definition-editor/elsa-workflow-definition-editor-screen)
+ - [elsa-workflow-instance-journal](../../screens/workflow-instance-viewer/elsa-workflow-instance-journal)
  - [elsa-workflow-settings-modal](../../screens/workflow-definition-editor/elsa-workflow-settings-modal)
 
 ### Graph
@@ -57,6 +65,7 @@ graph TD;
   elsa-secret-editor-modal --> elsa-modal-dialog
   elsa-secrets-picker-modal --> elsa-modal-dialog
   elsa-workflow-definition-editor-screen --> elsa-modal-dialog
+  elsa-workflow-instance-journal --> elsa-modal-dialog
   elsa-workflow-settings-modal --> elsa-modal-dialog
   style elsa-modal-dialog fill:#f9f,stroke:#333,stroke-width:4px
 ```
