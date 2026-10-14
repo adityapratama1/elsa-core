@@ -1,0 +1,26 @@
+.workflow-canvas {position:relative;min-width:0;min-height:0;isolation:isolate}
+.workflow-canvas.workflow-canvas {background-image:radial-gradient(circle at 0 0,#dce3ed 1px,transparent 1px)}
+.workflow-canvas .graph-toolbar {position:absolute;top:14px;left:16px;z-index:2;display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:calc(100% - 32px);padding:7px;background:rgba(255,255,255,.97);border:1px solid #dce5ef;border-radius:11px;box-shadow:0 3px 16px #20395412;font:12px Inter,system-ui,sans-serif;color:#344764}
+.workflow-canvas .graph-toolbar button,.workflow-canvas .graph-toolbar select {border:1px solid transparent;background:#f2f6fa;border-radius:5px;height:26px;min-height:26px;padding:3px 7px;font:inherit;color:inherit;cursor:pointer;line-height:18px}
+.workflow-canvas .graph-toolbar button:hover {background:#e2effb;color:#1269ad}
+.workflow-canvas .graph-toolbar button:disabled {opacity:.45;cursor:default}
+.workflow-canvas .graph-toolbar button:focus-visible,.workflow-canvas .graph-toolbar select:focus-visible {outline:2px solid #1689e4;outline-offset:2px}
+.workflow-canvas .graph-zoom {min-width:42px;text-align:center;font-variant-numeric:tabular-nums;color:#65768d}
+.workflow-canvas .graph-warning {position:absolute;left:16px;top:66px;z-index:2;max-width:360px;padding:8px 11px;border:1px solid #e9c97f;border-radius:7px;background:#fff8e8;color:#775512;font:12px Inter,system-ui,sans-serif}
+.workflow-canvas .graph-warning summary {cursor:pointer}
+.workflow-canvas .graph-warning p {margin:8px 0 0;line-height:1.5}
+.workflow-canvas .graph-warning ul {max-height:160px;overflow:auto;overflow-wrap:anywhere;list-style:disc;padding-left:16px;margin-top:8px}
+.workflow-canvas .node.activity .activity {width:280px;max-width:280px;border-radius:10px!important;box-shadow:0 3px 9px #233b5810}
+.workflow-canvas .graph-node-caption {min-width:0}
+.workflow-canvas .graph-node-caption p {overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important}
+.workflow-canvas .graph-node-caption .elsa-text-gray-400 {color:#697b92}
+.workflow-canvas .graph-outcomes {display:inline-flex;flex-direction:column;align-items:center;gap:4px;padding:2px 4px;min-width:max-content}
+.workflow-canvas .node.activity .activity p {white-space:normal;overflow-wrap:anywhere;line-height:1.35}
+.workflow-canvas .node.activity .activity .elsa-text-base {font-size:14px;font-weight:600}
+.workflow-canvas .node.activity .activity .elsa-text-sm {font-size:11px}
+.workflow-canvas .node.graph-selected .activity {outline:2px solid #1689e4;outline-offset:3px;box-shadow:0 0 0 5px #1689e416}
+.workflow-canvas .graph-outcome {display:inline-block;flex-shrink:0;width:max-content;white-space:nowrap;border:1px solid #dce5ef;border-radius:12px;background:#f8fafc;padding:2px 7px;font:11px/16px Inter,system-ui,sans-serif;color:#4c627e}
+.workflow-canvas .edgeLabel foreignObject {overflow:visible}
+.workflow-canvas .edgePath path.path {stroke:#8396ad;stroke-width:1.6px;stroke-linecap:round;stroke-linejoin:round}
+.workflow-canvas .edgePath:hover path.path {stroke:#1689e4;stroke-width:1.8px}
+@media(max-width:640px){.workflow-canvas .graph-toolbar{left:8px;top:8px;max-width:calc(100% - 16px);gap:4px}.workflow-canvas .graph-toolbar button,.workflow-canvas .graph-toolbar select{padding:3px 6px}.workflow-canvas .graph-warning{top:100px;left:8px}}
