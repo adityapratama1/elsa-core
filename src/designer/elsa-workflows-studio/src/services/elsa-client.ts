@@ -264,7 +264,7 @@ export const createElsaClient = async function (serverUrl: string): Promise<Elsa
       get: async (workflowInstanceId: string, page?: number, pageSize?: number): Promise<PagedList<WorkflowExecutionLogRecord>> => {
         const queryString = {};
 
-        if (!!page)
+        if (page !== undefined && page !== null)
           queryString['page'] = page;
 
         if (!!pageSize)

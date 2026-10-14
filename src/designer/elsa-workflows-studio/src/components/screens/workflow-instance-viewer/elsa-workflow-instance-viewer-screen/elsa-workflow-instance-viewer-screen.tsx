@@ -120,7 +120,7 @@ export class ElsaWorkflowInstanceViewerScreen {
   onWindowClicked(event: Event){
     const target = event.target as HTMLElement;
 
-    if (!this.contextMenu.contains(target))
+    if (!this.contextMenu?.contains(target))
       this.handleContextMenuChange(0, 0, false, null);
   }
 
@@ -166,14 +166,15 @@ export class ElsaWorkflowInstanceViewerScreen {
 
   mapActivityModel(activityBlueprint: ActivityBlueprint, workflowInstance: WorkflowInstance): ActivityModel {
     const activityDescriptors: Array<ActivityDescriptor> = state.activityDescriptors;
-    const activityDescriptor = activityDescriptors.find(x => x.type == activityBlueprint.type);
-    const activityData = workflowInstance.activityData[activityBlueprint.id] || {};
+    const activityDescriptor = activityDescriptors.find(x => x.type == activityBlueprint.type)
+      || {inputProperties: [], outputProperties: [], outcomes: []};
+    const activityData = workflowInstance.activityData?.[activityBlueprint.id] || {};
 
-    const properties: Array<ActivityDefinitionProperty> = collection.map(activityBlueprint.inputProperties.data, (value, key) => {
-      const propertyDescriptor = activityDescriptor.inputProperties.find(x => x.name == key) || activityDescriptor.outputProperties.find(x => x.name == key);
+    const properties: Array<ActivityDefinitionProperty> = collection.map(activityBlueprint.inputProperties?.data || {}, (value, key) => {
+      const propertyDescriptor = activityDescriptor.inputProperties?.find(x => x.name == key) || activityDescriptor.outputProperties?.find(x => x.name == key);
       const defaultSyntax = propertyDescriptor?.defaultSyntax || SyntaxNames.Literal;
       const expressions = {};
-      const v = activityData[key] || value;
+      const v = activityData[key] ?? value;
       expressions[defaultSyntax] = v;
       return ({name: key, value: v, expressions: expressions, syntax: defaultSyntax});
     });
@@ -264,7 +265,7 @@ export class ElsaWorkflowInstanceViewerScreen {
   getActivityBorderColor = (activity: ActivityModel): string => {
     const workflowInstance = this.workflowInstance;
     const workflowFault = !!workflowInstance ? workflowInstance.faults : null;
-    const activityData = workflowInstance.activityData[activity.activityId] || {};
+    const activityData = workflowInstance.activityData?.[activity.activityId] || {};
     const lifecycle = activityData['_Lifecycle'] || {};
     const executing = lifecycle.executing ?? lifecycle.Executing;
     const executed = lifecycle.executed ?? lifecycle.Executed;
@@ -284,7 +285,7 @@ export class ElsaWorkflowInstanceViewerScreen {
   renderActivityStatsButton = (activity: ActivityModel): string => {
     const workflowInstance = this.workflowInstance;
     const workflowFault = !!workflowInstance ? workflowInstance.faults : null;
-    const activityData = workflowInstance.activityData[activity.activityId] || {};
+    const activityData = workflowInstance.activityData?.[activity.activityId] || {};
     const lifecycle = activityData['_Lifecycle'] || {};
     const executing = lifecycle.executing ?? lifecycle.Executing;
     const executed = lifecycle.executed ?? lifecycle.Executed;

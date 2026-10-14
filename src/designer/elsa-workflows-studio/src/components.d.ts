@@ -340,7 +340,7 @@ export namespace Components {
         "workflowFault": WorkflowFault;
     }
     interface ElsaWorkflowInstanceJournal {
-        "activityDescriptors": Array<ActivityDescriptor>;
+        "activityDescriptors": ActivityDescriptor[];
         "selectActivityRecord": (activityId?: string) => Promise<void>;
         "serverUrl": string;
         "workflowBlueprint": WorkflowBlueprint;
@@ -1201,7 +1201,7 @@ declare namespace LocalJSX {
         "workflowFault"?: WorkflowFault;
     }
     interface ElsaWorkflowInstanceJournal {
-        "activityDescriptors"?: Array<ActivityDescriptor>;
+        "activityDescriptors"?: ActivityDescriptor[];
         "onRecordSelected"?: (event: CustomEvent<WorkflowExecutionLogRecord>) => void;
         "serverUrl"?: string;
         "workflowBlueprint"?: WorkflowBlueprint;

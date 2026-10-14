@@ -26,6 +26,7 @@ import dagreD3 from 'dagre-d3';
 import state from '../../../../utils/store';
 import {ActivityIcon} from '../../../icons/activity-icon';
 import {ActivityContextMenuState, LayoutDirection, WorkflowDesignerMode} from "./models";
+import {escapeGraphText, fitCanvas, inspectCanvas, groupCanvasConnections, orthogonalCurve} from '../../../../utils/canvas-layout';
 
 @Component({
   tag: 'elsa-designer-tree',
@@ -60,6 +61,18 @@ export class ElsaWorkflowDesigner {
   @Event() connectionContextMenuButtonClicked: EventEmitter<ActivityContextMenuState>;
   @Event() activityContextMenuButtonTestClicked: EventEmitter<ActivityContextMenuState>;
   @State() workflowModel: WorkflowModel;
+  @State() zoomPercent = 100;
+  @State() hasSelection = false;
+  @State() layoutIssues: string[] = [];
+  @State() viewDirection: LayoutDirection;
+  private resizeObserver?: ResizeObserver;
+  private renderFrame?: number;
+  private selectionTimer?: ReturnType<typeof setTimeout>;
+  private modelRevision = 0;
+  private connected = false;
+  private needsLayout = true;
+  private startNodeId = '__elsa_canvas_start__';
+  private fitAfterLayout = false;
 
   @State() activityContextMenuState: ActivityContextMenuState = {
     shown: false,
@@ -133,8 +146,14 @@ export class ElsaWorkflowDesigner {
       map[activity.activityId] = activity;
 
     this.selectedActivities = map;
-    this.safeRender();
+    this.updateHighlight();
   }
+
+  @Watch('layoutDirection')
+  handleDirectionChanged() { this.viewDirection = this.layoutDirection; this.fitAfterLayout = true; this.safeRender(); }
+
+  @Watch('mode')
+  handleModeChanged() { this.safeRender(); }
 
   @Watch('activityContextMenu')
   handleActivityContextMenuChanged(newValue: ActivityContextMenuState) {
@@ -231,6 +250,12 @@ export class ElsaWorkflowDesigner {
   }
 
   connectedCallback() {
+    this.connected = true;
+    if (this.svgD3Selected) {
+      this.applyZoom();
+      this.resizeObserver?.observe(this.el);
+      this.safeRender();
+    }
     eventBus.on(EventTypes.ActivityPicked, this.onActivityPicked);
     eventBus.on(EventTypes.UpdateActivity, this.onUpdateActivity);
     //eventBus.on(EventTypes.PasteActivity, this.onPasteActivity);
@@ -240,23 +265,38 @@ export class ElsaWorkflowDesigner {
   }
 
   disconnectedCallback() {
+    this.connected = false;
+    this.modelRevision++;
+    this.resizeObserver?.disconnect();
+    if (this.renderFrame !== undefined) cancelAnimationFrame(this.renderFrame);
+    if (this.selectionTimer !== undefined) clearTimeout(this.selectionTimer);
+    this.renderFrame = undefined;
+    this.selectionTimer = undefined;
     eventBus.detach(EventTypes.ActivityPicked, this.onActivityPicked);
     eventBus.detach(EventTypes.UpdateActivity, this.onUpdateActivity);
     //eventBus.detach(EventTypes.PasteActivity, this.onPasteActivity);
     // eventBus.detach(EventTypes.HideModalDialog, this.onCopyPasteActivityEnabled);
     // eventBus.detach(EventTypes.ShowWorkflowSettings, this.onCopyPasteActivityDisabled);
     eventBus.detach(EventTypes.WorkflowExecuted, this.onWorkflowExecuted);
-    d3.selectAll('.node').on('click', null);
-    d3.selectAll('.edgePath').on('contextmenu', null);
+    d3.select(this.el).selectAll('.node').on('click', null);
+    d3.select(this.el).selectAll('.edgePath').on('contextmenu', null);
+    this.svgD3Selected?.on('.zoom', null);
   }
 
   componentWillLoad() {
-    this.workflowModel = this.model;
+    this.workflowModel = this.cleanWorkflowModel(this.model);
+    this.viewDirection = this.layoutDirection;
   }
 
   componentDidLoad() {
     this.svgD3Selected = d3.select(this.svg);
     this.innerD3Selected = d3.select(this.inner);
+    this.applyZoom();
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.needsLayout) this.safeRender();
+    });
+    this.resizeObserver.observe(this.el);
+    (document as unknown as {fonts?: {ready: Promise<unknown>}}).fonts?.ready.then(() => { if (this.connected) this.safeRender(); });
     this.safeRender();
   }
 
@@ -265,31 +305,30 @@ export class ElsaWorkflowDesigner {
     if (!this.svgD3Selected)
       return;
 
-    const rect = this.el.getBoundingClientRect();
-    if (rect.height === 0 || rect.width === 0) {
-      const observer = new ResizeObserver(entries => {
-        for (let entry of entries) {
-          this.renderTree();
-          observer.unobserve(this.el);
-        }
-      });
-
-      observer.observe(this.el);
-    } else {
+    this.needsLayout = true;
+    if (this.renderFrame !== undefined || !this.connected) return;
+    this.renderFrame = requestAnimationFrame(() => {
+      this.renderFrame = undefined;
+      const rect = this.el.getBoundingClientRect();
+      if (!this.connected || !this.activityDisplayContexts || rect.width <= 0 || rect.height <= 0) return;
+      this.needsLayout = false;
       this.renderTree();
-    }
+    });
   }
 
   async componentWillRender() {
     if (!!this.activityDisplayContexts)
       return;
 
-    const activityModels = this.workflowModel.activities;
+    const revision = this.modelRevision;
+    const activityModels = inspectCanvas(this.workflowModel).activities;
     const displayContexts: Map<ActivityDesignDisplayContext> = {};
 
     for (const model of activityModels)
       displayContexts[model.activityId] = await this.getActivityDisplayContext(model);
 
+    if (!this.connected) return;
+    if (revision !== this.modelRevision) return this.componentWillRender();
     this.activityDisplayContexts = displayContexts;
     this.safeRender();
   }
@@ -303,11 +342,11 @@ export class ElsaWorkflowDesigner {
     if (!descriptorExists)
       descriptor = this.createNotFoundActivityDescriptor(activityModel);
 
-    const description = descriptorExists ? activityModel.description : `(Not Found) ${descriptorExists}`;
+    const description = descriptorExists ? activityModel.description : `Unknown activity type: ${activityModel.type}`;
     const bodyText = description && description.length > 0 ? description : undefined;
-    const bodyDisplay = bodyText ? `<p>${bodyText}</p>` : undefined;
-    const color = (descriptor.traits &= ActivityTraits.Trigger) == ActivityTraits.Trigger ? 'rose' : 'sky';
-    const displayName = descriptorExists ? activityModel.displayName : `(Not Found) ${activityModel.displayName}`;
+    const bodyDisplay = bodyText ? `<p>${escapeGraphText(bodyText)}</p>` : undefined;
+    const color = (descriptor.traits & ActivityTraits.Trigger) == ActivityTraits.Trigger ? 'rose' : 'sky';
+    const displayName = activityModel.displayName || activityModel.name || descriptor.displayName || activityModel.type;
 
     const displayContext: ActivityDesignDisplayContext = {
       activityModel: activityModel,
@@ -315,7 +354,7 @@ export class ElsaWorkflowDesigner {
       activityIcon: <ActivityIcon color={color}/>,
       bodyDisplay: bodyDisplay,
       displayName: displayName,
-      outcomes: [...activityModel.outcomes],
+      outcomes: [...(activityModel.outcomes || [])],
       expanded: oldContextData.expanded
     };
 
@@ -343,6 +382,7 @@ export class ElsaWorkflowDesigner {
   }
 
   updateWorkflowModel(model: WorkflowModel, emitEvent: boolean = true) {
+    this.modelRevision++;
     this.workflowModel = this.cleanWorkflowModel(model);
     this.oldActivityDisplayContexts = this.activityDisplayContexts;
     this.activityDisplayContexts = null;
@@ -352,34 +392,9 @@ export class ElsaWorkflowDesigner {
   }
 
   cleanWorkflowModel(model: WorkflowModel): WorkflowModel {
-
-    // Detect duplicate activities and throw.
-    const activityIds = model.activities.map(x => x.activityId);
-    const count = ids => ids.reduce((a, b) => ({...a, [b]: (a[b] || 0) + 1}), {})
-    const duplicates = dict => Object.keys(dict).filter((a) => dict[a] > 1)
-    const duplicateIds = duplicates(count(activityIds));
-
-    if (duplicateIds.length > 0) {
-      console.error(duplicateIds);
-      throw Error(`Found duplicate activities. Throwing for now until we find the root cause.`);
-    }
-
-    model.connections = model.connections.filter(connection => {
-      const sourceId = connection.sourceId;
-      const targetId = connection.targetId;
-      const sourceExists = model.activities.findIndex(x => x.activityId == sourceId) != null;
-      const targetExists = model.activities.findIndex(x => x.activityId == targetId) != null;
-
-      if (!sourceExists)
-        connection.sourceId = null;
-
-      if (!targetExists)
-        connection.targetId = null;
-
-      return !!connection.sourceId || !!connection.targetId;
-    });
-
-    return model;
+    // Rendering validation is separate from the saved definition. Never silently
+    // delete or rewrite broken edges in the caller's workflow model.
+    return {...model, activities: [...(model?.activities || [])], connections: (model?.connections || []).map(c => ({...c}))};
   }
 
   removeActivityInternal(activity: ActivityModel, model?: WorkflowModel) {
@@ -501,7 +516,7 @@ export class ElsaWorkflowDesigner {
   }
 
   getRootActivities(): Array<ActivityModel> {
-    return getChildActivities(this.workflowModel, null);
+    return inspectCanvas(this.workflowModel).roots;
   }
 
   addConnection(sourceActivityId: string, targetActivityId: string, outcome: string) {
@@ -537,47 +552,83 @@ export class ElsaWorkflowDesigner {
   }
 
   applyZoom() {
-    this.zoom = d3.zoom().on('zoom', event => {
+    this.zoom = d3.zoom().scaleExtent([.1, 3]).on('zoom', event => {
       const {transform} = event;
       this.innerD3Selected.attr('transform', transform);
+      const canvas = this.el.querySelector('.workflow-canvas') as HTMLElement;
+      if (canvas) {
+        canvas.style.backgroundSize = `${30 * transform.k}px ${30 * transform.k}px`;
+        canvas.style.backgroundPosition = `${transform.x}px ${transform.y}px`;
+      }
       this.zoomParams = {
         x: transform.x,
         y: transform.y,
         scale: transform.k,
         initialZoom: this.zoomParams.initialZoom,
       };
+      const percent = Math.round(transform.k * 100);
+      if (percent !== this.zoomPercent) this.zoomPercent = percent;
     });
     this.svgD3Selected.call(this.zoom);
   }
 
   applyInitialZoom() {
-    const {width: widthSvg}: { width: number } = this.svgD3Selected.node().getBBox();
-    const middleScreen: number = this.svgD3Selected.node().clientWidth / 2;
-    const nodeStartTransform: string = d3.select('.node.start').attr('transform');
-    const nodeStartTranslateX: number = parseInt(nodeStartTransform.replace(/translate|((\)|\())/g, '').split(',')[0]);
-
-    const zoomParamsScale: number = 1;
-    const zoomParamsY: number = 50;
-    const zoomParamsX: number = middleScreen - (widthSvg - (widthSvg - nodeStartTranslateX));
-
-    this.zoom.scaleTo(this.svgD3Selected, zoomParamsScale);
-    this.zoom.translateTo(this.svgD3Selected, zoomParamsX, zoomParamsY);
-
-    this.svgD3Selected
-      .call(this.zoom.transform, d3.zoomIdentity.scale(zoomParamsScale)
-        .translate(zoomParamsX, zoomParamsY));
-
+    const start = this.graph.node(this.startNodeId) as any;
+    const viewport = this.canvasViewport();
+    if (start && viewport.width > 0) {
+      const direction = this.getLayoutDirection();
+      const x = direction === 'LR' ? 90 : direction === 'RL' ? viewport.width - 90 : viewport.width / 2;
+      const y = direction === 'LR' || direction === 'RL' ? viewport.height / 2 : direction === 'BT' ? viewport.height - 90 : 90;
+      this.svgD3Selected.call(this.zoom.transform, d3.zoomIdentity.translate(x - start.x, y - start.y));
+    }
     this.zoomParams.initialZoom = false;
   }
 
-  setEntities() {
-    this.graph = new dagreD3.graphlib.Graph().setGraph({ranksep: 30});
-    (this.graph.graph() as any).rankdir = this.getLayoutDirection();
+  private canvasViewport() {
+    const rect = this.svg.getBoundingClientRect();
+    let width = rect.width;
+    const viewer = this.el.closest('elsa-workflow-instance-viewer-screen');
+    const panel = viewer?.querySelector('elsa-workflow-instance-journal .elsa-shadow-xl')?.getBoundingClientRect();
+    if (panel && panel.width > 0 && panel.left > rect.left && panel.left < rect.right) width = panel.left - rect.left - 12;
+    return {width: Math.max(1,width), height: rect.height};
+  }
 
-    const rootActivities = this.getRootActivities();
+  private fitGraph = () => {
+    if (!this.inner || !this.zoom) return;
+    const viewport = this.canvasViewport();
+    const fit = fitCanvas(this.inner.getBBox(), viewport.width, viewport.height);
+    if (fit) this.svgD3Selected.call(this.zoom.transform, d3.zoomIdentity.translate(fit.x, fit.y).scale(fit.scale));
+  };
+
+  private focusSelected = () => {
+    const id = Object.keys(this.selectedActivities)[0];
+    const node = id && this.graph.node(id) as any;
+    if (!node || !this.zoom) return;
+    const viewport = this.canvasViewport();
+    const scale = Math.max(.8, Math.min(1.5, this.zoomParams.scale));
+    this.svgD3Selected.call(this.zoom.transform, d3.zoomIdentity.translate(viewport.width / 2 - node.x * scale, viewport.height / 2 - node.y * scale).scale(scale));
+  };
+
+  private updateHighlight() {
+    if (!this.svgD3Selected) return;
+    const root = d3.select(this.el);
+    root.selectAll('.node.activity').classed('graph-selected', (id: any) => !!this.selectedActivities[id]);
+    const selected = Object.keys(this.selectedActivities).length > 0;
+    if (this.hasSelection !== selected) this.hasSelection = selected;
+  }
+
+  setEntities() {
+    this.graph = new dagreD3.graphlib.Graph({multigraph: true}).setGraph({ranksep: 68, nodesep: 48, edgesep: 24, marginx: 24, marginy: 24});
+    (this.graph.graph() as any).rankdir = this.getLayoutDirection();
+    const canvas = inspectCanvas(this.workflowModel);
+    const issues = [...canvas.issues];
+    const rootActivities = canvas.roots;
+    const editable = this.mode === WorkflowDesignerMode.Edit;
+    this.startNodeId = '__elsa_canvas_start__';
+    while (canvas.activities.some(a => a.activityId === this.startNodeId)) this.startNodeId += '_';
 
     // Start node.
-    this.graph.setNode('start', {
+    this.graph.setNode(this.startNodeId, {
       shape: 'rect',
       label: this.mode == WorkflowDesignerMode.Edit
         ? `<button class="elsa-px-6 elsa-py-3 elsa-border elsa-border-transparent elsa-text-base elsa-leading-6 elsa-font-medium elsa-rounded-md elsa-text-white elsa-bg-green-600 hover:elsa-bg-green-500 focus:elsa-outline-none focus:elsa-border-green-700 focus:elsa-shadow-outline-green active:elsa-bg-green-700 elsa-transition elsa-ease-in-out elsa-duration-150">Start</button>`
@@ -590,7 +641,11 @@ export class ElsaWorkflowDesigner {
 
     // Connections between Start and root activities.
     rootActivities.forEach(activity => {
-      this.graph.setEdge('start', `${activity.activityId}/start`, {
+      if (!editable) {
+        this.graph.setEdge(this.startNodeId, activity.activityId, {arrowhead: 'normal'});
+        return;
+      }
+      this.graph.setEdge(this.startNodeId, `${activity.activityId}/start`, {
         arrowhead: 'undirected',
       });
       this.graph.setNode(`${activity.activityId}/start`, {
@@ -606,12 +661,12 @@ export class ElsaWorkflowDesigner {
     // Connections between activities and their outcomes.
     const activityDisplayContexts = this.activityDisplayContexts || {};
 
-    this.workflowModel.activities.forEach(activity => {
+    canvas.activities.forEach(activity => {
 
       this.graph.setNode(activity.activityId, this.createActivityOptions(activity));
       const displayContext = activityDisplayContexts[activity.activityId] || undefined;
       const outcomes = !!displayContext ? displayContext.outcomes : activity.outcomes || [];
-
+      if (!editable) return;
       outcomes.forEach(outcome => {
         this.graph.setNode(`${activity.activityId}/${outcome}`, {
           shape: 'rect',
@@ -622,7 +677,7 @@ export class ElsaWorkflowDesigner {
           class: 'add'
         });
         this.graph.setEdge(activity.activityId, `${activity.activityId}/${outcome}`, {
-          label: `<p class="elsa-outcome elsa-mb-4 elsa-relative elsa-z-10 elsa-px-2.5 elsa-py-0.5 elsa-rounded-full elsa-text-xs elsa-font-medium elsa-leading-4 elsa-bg-gray-100 elsa-text-gray-800 elsa-capitalize elsa-cursor-default">${outcome}</p>`,
+          label: `<p class="elsa-outcome elsa-mb-4 elsa-relative elsa-z-10 elsa-px-2.5 elsa-py-0.5 elsa-rounded-full elsa-text-xs elsa-font-medium elsa-leading-4 elsa-bg-gray-100 elsa-text-gray-800 elsa-capitalize elsa-cursor-default">${escapeGraphText(outcome)}</p>`,
           labelpos: 'c',
           labelType: 'html',
           arrowhead: 'undirected',
@@ -630,19 +685,28 @@ export class ElsaWorkflowDesigner {
       });
     });
 
-    this.workflowModel.connections.forEach(({sourceId, targetId, outcome}) => {
+    if (!editable) groupCanvasConnections(canvas.connections).forEach(({sourceId,targetId,outcomes}, index) => {
+      this.graph.setEdge(sourceId, targetId, {arrowhead:'normal', labelType:'html',
+        label: `<span class="graph-outcomes">${outcomes.map(outcome => `<span class="graph-outcome">${escapeGraphText(outcome)}</span>`).join('')}</span>`}, `connection-${index}`);
+    });
+    canvas.connections.forEach(({sourceId, targetId, outcome}) => {
+      if (!editable) return;
       const sourceName = `${sourceId}/${outcome}`;
 
       if (!this.graph.hasNode(sourceName)) {
-        console.warn(`No source node with ID '${sourceName}' exists.`);
+        issues.push('Connection outcome is missing from its source activity');
         return;
       }
 
       this.graph.setEdge(sourceName, targetId, {arrowhead: 'undirected'});
     });
+    const curve = orthogonalCurve(['TB','BT'].includes(this.getLayoutDirection()));
+    this.graph.edges().forEach(edge => { (this.graph.edge(edge) as any).curve = curve; });
+    if (JSON.stringify(issues) !== JSON.stringify(this.layoutIssues)) this.layoutIssues = issues;
   }
 
   onActivityPicked = async args => {
+    if (this.mode !== WorkflowDesignerMode.Edit) return;
     const activityDescriptor = args as ActivityDescriptor;
     const activityModel = this.newActivity(activityDescriptor);
     this.addingActivity = true;
@@ -650,6 +714,7 @@ export class ElsaWorkflowDesigner {
   };
 
   onUpdateActivity = args => {
+    if (this.mode !== WorkflowDesignerMode.Edit) return;
     const activityModel = args as ActivityModel;
 
     if (this.addingActivity) {
@@ -683,9 +748,11 @@ export class ElsaWorkflowDesigner {
   // }
 
   onWorkflowExecuted = () => {
+    if (this.mode === WorkflowDesignerMode.Instance || this.mode === WorkflowDesignerMode.Blueprint) return;
     const firstNode = d3.select(this.el).select('.node.activity');
 
     const node = this.graph.node(firstNode.data() as any) as any;
+    if (!node?.activity) return;
     const activity = node.activity;
     const activityId = activity.activityId;
 
@@ -694,13 +761,22 @@ export class ElsaWorkflowDesigner {
   }
 
   renderNodes() {
-    const prevTransform = this.innerD3Selected.attr('transform');
-    const scaleAfter = this.zoomParams.scale;
+    const transform = d3.zoomTransform(this.svg);
     const root = d3.select(this.el);
-    this.svgD3Selected.call(this.zoom.scaleTo, 1);
-    this.dagreD3Renderer(this.innerD3Selected as any, this.graph as any);
-    this.svgD3Selected.call(this.zoom.scaleTo, scaleAfter);
-    this.innerD3Selected.attr('transform', prevTransform);
+    // Dagre HTML labels use getBoundingClientRect. Measure at scale 1 without
+    // changing D3's internal zoom state, then restore the exact user viewport.
+    this.innerD3Selected.attr('transform', null);
+    try {
+      this.dagreD3Renderer(this.innerD3Selected as any, this.graph as any);
+      // Fractional HTML measurements must not clip the last letter or tag row.
+      this.innerD3Selected.selectAll('.edgeLabel foreignObject').each(function() {
+        const label = this as SVGForeignObjectElement;
+        label.setAttribute('width',String(Math.ceil(label.width.baseVal.value) + 8));
+        label.setAttribute('height',String(Math.ceil(label.height.baseVal.value) + 6));
+        label.style.overflow = 'visible';
+      });
+    }
+    finally { this.innerD3Selected.attr('transform', transform.toString()); }
 
     if (this.zoomParams.initialZoom === true) {
       this.applyInitialZoom();
@@ -783,6 +859,8 @@ export class ElsaWorkflowDesigner {
           if (activityContext) {
             activityContext.expanded = !activityContext.expanded;
           }
+          e.stopPropagation();
+          this.safeRender();
       });
 
       d3.select(node.elem).on('click', e => {
@@ -793,7 +871,10 @@ export class ElsaWorkflowDesigner {
           // When clicking an activity with shift:
           if (e.shiftKey) {
             if (!!this.selectedActivities[activityId])
+            {
               delete this.selectedActivities[activityId];
+              this.activityDeselected.emit(activity);
+            }
             else {
               this.selectedActivities[activityId] = activity;
               this.activitySelected.emit(activity);
@@ -802,7 +883,10 @@ export class ElsaWorkflowDesigner {
           // When clicking an activity:
           else {
             if (!!this.selectedActivities[activityId])
+            {
               delete this.selectedActivities[activityId];
+              this.activityDeselected.emit(activity);
+            }
             else {
               for (const key in this.selectedActivities) {
                 this.activityDeselected.emit(this.selectedActivities[key]);
@@ -814,8 +898,9 @@ export class ElsaWorkflowDesigner {
           }
 
           // Delay the rerender of the tree to permit the double click action to be captured
-          setTimeout(() => {
-            this.safeRender();
+          if (this.selectionTimer !== undefined) clearTimeout(this.selectionTimer);
+          this.selectionTimer = setTimeout(() => {
+            if (this.connected) this.updateHighlight();
           }, 90);
         }
       }).on('dblclick', async e => {
@@ -829,7 +914,7 @@ export class ElsaWorkflowDesigner {
             this.selectedActivities = {};
             this.selectedActivities[activityId] = activity;
             this.activitySelected.emit(activity);
-            this.safeRender();
+            this.updateHighlight();
           }
         }
       });
@@ -860,9 +945,10 @@ export class ElsaWorkflowDesigner {
   }
 
   renderTree() {
-    this.applyZoom();
     this.setEntities();
     this.renderNodes();
+    this.updateHighlight();
+    if (this.fitAfterLayout) { this.fitAfterLayout = false; this.fitGraph(); }
   }
 
   createActivityOptions(activity: ActivityModel) {
@@ -894,21 +980,21 @@ export class ElsaWorkflowDesigner {
     const activityContextMenuButton = !!this.activityContextMenuButton ? this.activityContextMenuButton(activity) : '';
     const activityBorderColor = !!this.activityBorderColor ? this.activityBorderColor(activity) : 'gray';
     const selectedColor = !!this.activityBorderColor ? activityBorderColor : 'blue';
-    const cssClass = !!this.selectedActivities[activity.activityId] ? `elsa-border-${selectedColor}-600` : `elsa-border-${activityBorderColor}-200 hover:elsa-border-${selectedColor}-600`;
+    const cssClass = `elsa-border-${activityBorderColor}-200 hover:elsa-border-${selectedColor}-600`;
     const displayName = displayContext != undefined ? displayContext.displayName : activity.displayName;
     const typeName = activity.type;
     const expanded = displayContext && displayContext.expanded;
 
-    return `<div id=${`activity-${activity.activityId}`}
+    return `<div id="${escapeGraphText(`activity-${activity.activityId}`)}"
     class="activity elsa-border-2 elsa-border-solid elsa-rounded elsa-bg-white elsa-text-left elsa-text-black elsa-text-lg elsa-select-none elsa-max-w-md elsa-shadow-sm elsa-relative ${cssClass}">
       <div class="elsa-p-3">
         <div class="elsa-flex elsa-justify-between elsa-space-x-4">
           <div class="elsa-flex-shrink-0">
           ${displayContext?.activityIcon || ''}
           </div>
-          <div class="elsa-flex-1 elsa-font-medium elsa-leading-8 elsa-overflow-hidden">
-            <p class="elsa-overflow-ellipsis elsa-text-base">${displayName}</p>
-            ${typeName !== displayName ? `<p class="elsa-text-gray-400 elsa-text-sm">${typeName}</p>` : ''}
+          <div class="graph-node-caption elsa-flex-1 elsa-font-medium elsa-leading-8 elsa-overflow-hidden">
+            <p title="${escapeGraphText(displayName)}" class="elsa-overflow-ellipsis elsa-text-base">${escapeGraphText(displayName)}</p>
+            ${typeName !== displayName ? `<p class="elsa-text-gray-400 elsa-text-sm">${escapeGraphText(typeName)}</p>` : ''}
           </div>
           <div class="elsa--mt-2">
             <div class="context-menu-button-container">
@@ -926,7 +1012,6 @@ export class ElsaWorkflowDesigner {
         </div>
         ${this.renderActivityBody(displayContext)}
         </div>
-      </div>
       </div>`;
   }
 
@@ -941,7 +1026,7 @@ export class ElsaWorkflowDesigner {
                 <svg class="-elsa-ml-0.5 elsa-mr-1.5 elsa-h-2 elsa-w-2 elsa-text-gray-400" fill="currentColor" viewBox="0 0 8 8">
                   <circle cx="4" cy="4" r="3" />
                 </svg>
-                ${displayContext != undefined ? displayContext.activityModel.activityId : ''}
+                ${escapeGraphText(displayContext?.activityModel.activityId)}
               </span>
             </div>
           </div>
@@ -955,6 +1040,21 @@ export class ElsaWorkflowDesigner {
   render() {
     return (
       <Host class="workflow-canvas elsa-flex-1 elsa-flex" ref={el => (this.el = el)}>
+        <div class="graph-toolbar" role="toolbar" aria-label="Workflow canvas controls">
+          <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => this.svgD3Selected?.call(this.zoom.scaleBy, .8)}>−</button>
+          <span class="graph-zoom" aria-label="Zoom level">{this.zoomPercent}%</span>
+          <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => this.svgD3Selected?.call(this.zoom.scaleBy, 1.25)}>+</button>
+          <button type="button" onClick={this.fitGraph}>Fit graph</button>
+          <button type="button" disabled={!this.hasSelection} onClick={this.focusSelected}>Focus selected</button>
+          <button type="button" onClick={() => this.applyInitialZoom()}>Reset view</button>
+          <select aria-label="Graph direction" onChange={e => {this.viewDirection = (e.target as HTMLSelectElement).value as LayoutDirection; this.fitAfterLayout = true; this.safeRender();}}>
+            <option value={LayoutDirection.TopBottom} selected={this.viewDirection === LayoutDirection.TopBottom}>Top → bottom</option>
+            <option value={LayoutDirection.LeftRight} selected={this.viewDirection === LayoutDirection.LeftRight}>Left → right</option>
+          </select>
+        </div>
+        {this.layoutIssues.length > 0 && <details class="graph-warning"><summary>{this.layoutIssues.length} graph issue(s) · definition unchanged</summary>
+          <p>Unavailable entries are excluded from this drawing only. Inspect the definition before editing or saving.</p>
+          <ul>{this.layoutIssues.slice(0,10).map(issue => <li>{issue}</li>)}</ul></details>}
         {this.mode == WorkflowDesignerMode.Test ?
           <div>
             <div id="left" style={{border:`4px solid orange`, position:`fixed`, height: `calc(100vh - 64px)`, width:`4px`, top:`64`, bottom:`0`, left:`0`}}/>
@@ -977,7 +1077,7 @@ export class ElsaWorkflowDesigner {
   }
 
   private getLayoutDirection = () => {
-    switch (this.layoutDirection) {
+    switch (this.viewDirection || this.layoutDirection) {
       case LayoutDirection.BottomTop:
         return 'BT';
       case LayoutDirection.LeftRight:
