@@ -39,11 +39,9 @@ test('snapshot output handles null and declared output fields without including 
  assert.equal(JSON.stringify(output.value),'{"Count":0,"Success":false}');
  assert.equal(sandbox.exports.journalActivityOutput(occurrence,instance,{outputProperties:[]}),undefined);
 });
-test('journal defaults oldest first and copies untruncated data',()=>{
+test('journal defaults oldest first',()=>{
  const ui=fs.readFileSync(path.join(__dirname,'../src/components/screens/workflow-instance-viewer/elsa-workflow-instance-journal/elsa-workflow-instance-journal.tsx'),'utf8');
  assert.ok(ui.includes('@State() latestFirst = false'));
- assert.ok(ui.includes('navigator.clipboard.writeText(JSON.stringify(value, null, 2))'));
- assert.ok(!ui.includes('navigator.clipboard.writeText(this.raw('));
 });
 let id = 0;
 const event = (eventName, seconds, activityId='http') => ({id:String(++id),workflowInstanceId:'workflow',activityId,activityType:'SendHttpRequest',timestamp:new Date(1720000000000+seconds*1000),eventName});

@@ -3,6 +3,7 @@ import moment from 'moment';
 import {ActivityDescriptor, PagedList, WorkflowBlueprint, WorkflowExecutionLogRecord, WorkflowInstance, WorkflowModel} from '../../../../models';
 import {createElsaClient} from '../../../../services/elsa-client';
 import {JournalOccurrence, journalDuration, journalOccurrences, journalOutcomes, journalActivityOutput, journalValueShape} from '../../../../utils/journal-occurrences';
+import {dashboardData} from '../../../../utils/dashboard-data';
 
 @Component({tag: 'elsa-workflow-instance-journal', shadow: false, styleUrl: 'journal.css'})
 export class ElsaWorkflowInstanceJournal {
@@ -23,6 +24,9 @@ export class ElsaWorkflowInstanceJournal {
   @State() latestFirst = false;
   @State() copiedKey?: string;
   @State() copyErrorKey?: string;
+  @State() variableSearch = '';
+  @State() variableLimit = 30;
+  @State() expandedVariable?: string;
   flyoutPanel: HTMLElsaFlyoutPanelElement;
   private requestVersion = 0;
   private page = 0;
@@ -39,6 +43,9 @@ export class ElsaWorkflowInstanceJournal {
     this.latestFirst = false;
     this.copiedKey = undefined;
     this.copyErrorKey = undefined;
+    this.variableSearch = '';
+    this.variableLimit = 30;
+    this.expandedVariable = undefined;
     await this.loadRecords();
   }
 
@@ -89,7 +96,7 @@ export class ElsaWorkflowInstanceJournal {
     return activity?.displayName || activity?.name || descriptor?.displayName || occurrence.representative.activityType || 'Unknown activity';
   }
   private raw(value: any) {
-    const text = JSON.stringify(value, null, 2) || 'Not recorded';
+    const text = JSON.stringify(dashboardData(value), null, 2) || 'Not recorded';
     return text.length > 20000 ? text.slice(0, 20000) + '\n… Display truncated at 20,000 characters.' : text;
   }
 
@@ -97,7 +104,7 @@ export class ElsaWorkflowInstanceJournal {
     this.copiedKey = undefined;
     this.copyErrorKey = undefined;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(value, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(dashboardData(value), null, 2));
       this.copiedKey = key;
     } catch { this.copyErrorKey = key; }
   }
@@ -128,6 +135,7 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private renderStructuredData(value: any, label: string, key: string) {
+    value = dashboardData(value);
     return <section class="uj-structured" aria-label={label}><div class="uj-data-header"><strong>{label}</strong>
       <button class="uj-button" aria-label={`Copy ${label}`} disabled={value === undefined} onClick={() => this.copyData(value,key)}>{this.copiedKey === key ? 'Copied' : 'Copy JSON'}</button></div>
       {this.copyErrorKey === key && <p role="alert" class="uj-warning">Clipboard access failed. Open Raw JSON to copy the text manually.</p>}
@@ -143,8 +151,38 @@ export class ElsaWorkflowInstanceJournal {
       <elsa-tab-header tab="activityState" slot="header">Activity state</elsa-tab-header>
       <elsa-tab-content tab="activityState" slot="content">{this.renderState()}</elsa-tab-content>
       <elsa-tab-header tab="variables" slot="header">Variables</elsa-tab-header>
-      <elsa-tab-content tab="variables" slot="content">{this.renderData(this.workflowInstance?.variables?.data, 'Variables', 'variables')}</elsa-tab-content>
+      <elsa-tab-content tab="variables" slot="content">{this.renderVariables()}</elsa-tab-content>
     </elsa-flyout-panel></Host>;
+  }
+
+  private renderVariables() {
+    const data = this.workflowInstance?.variables?.data;
+    const entries = Object.entries(data || {});
+    const matches = entries.filter(([name]) => name.toLowerCase().includes(this.variableSearch.trim().toLowerCase()));
+    return <section class="uj-panel" aria-label="Workflow variables">
+      <header class="uj-heading"><div><h2>Variables <span class="uj-badge uj-neutral">{entries.length}</span></h2>
+        <p>Latest persisted values, not a snapshot of the selected journal step.</p></div></header>
+      <div class="uj-tools"><input aria-label="Find a variable" placeholder="Find variable by name" value={this.variableSearch}
+        onInput={e => { this.variableSearch = (e.target as HTMLInputElement).value; this.variableLimit = 30; }}/></div>
+      {!matches.length && <p class="uj-empty">{entries.length ? 'No variables match this name.' : 'No persisted variables available.'}</p>}
+      <div class="uj-variables">{matches.slice(0,this.variableLimit).map(([name,original]) => {
+        const value = dashboardData(original,name);
+        const external = value !== null && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value,'$externalPayload');
+        const shape = journalValueShape(value);
+        const type = external ? 'External payload' : value === null ? 'Null' : Array.isArray(value) ? 'Array' : typeof value === 'object' ? 'Object' : typeof value;
+        const preview = external ? 'Stored externally · reference only' : shape.kind === 'scalar' ? (shape.preview === '' ? '(empty string)' : shape.preview.slice(0,160)) : `${shape.count} ${Array.isArray(value) ? 'items' : 'fields'}`;
+        const open = this.expandedVariable === name;
+        return <article class={`uj-card ${open ? 'uj-selected' : ''}`} key={name}>
+          <button class="uj-row" aria-expanded={open ? 'true' : 'false'} onClick={() => this.expandedVariable = open ? undefined : name}>
+            <span class="uj-row-title"><strong>{name}</strong><span class="uj-badge uj-neutral">{type}</span></span>
+            <span class="uj-variable-preview">{preview}</span><span class="uj-meta">{open ? 'Hide value' : 'View value'}</span>
+          </button>
+          {open && <div class="uj-details">{external && <p class="uj-note">This is a payload reference, not its contents. No external data is fetched by this view.</p>}
+            {this.renderStructuredData(value, external ? 'Payload reference' : name, `variable:${name}`)}</div>}
+        </article>;
+      })}</div>
+      {matches.length > this.variableLimit && <button class="uj-button" onClick={() => this.variableLimit += 30}>Show next {Math.min(30,matches.length-this.variableLimit)} variables ({this.variableLimit} of {matches.length})</button>}
+    </section>;
   }
 
   private renderJournal() {
@@ -189,7 +227,7 @@ export class ElsaWorkflowInstanceJournal {
         {!!outcomes.length && <span class="uj-outcomes" aria-label="Recorded outcomes"><span class="uj-meta">Outcomes</span>{outcomes.map(outcome => <span class="uj-outcome">{outcome}</span>)}</span>}
         <span class="uj-meta">{x.records.length} raw event{x.records.length === 1 ? '' : 's'} · {open ? 'Hide details' : 'View details'}</span>
       </button>
-      {fault && <p class="uj-fault-message">{exception?.Message || exception?.message || fault.message || 'Activity fault recorded.'}</p>}
+      {fault && <p class="uj-fault-message">{dashboardData(exception?.Message || exception?.message || fault.message || 'Activity fault recorded.')}</p>}
       {open && <div class="uj-details">
         <dl class="uj-properties"><div><dt>Activity ID</dt><dd>{x.activityId} <elsa-copy-button value={x.activityId}/></dd></div>
           <div><dt>Started</dt><dd>{this.date(x.startedAt)}</dd></div><div><dt>Ended</dt><dd>{this.date(x.endedAt)}</dd></div>

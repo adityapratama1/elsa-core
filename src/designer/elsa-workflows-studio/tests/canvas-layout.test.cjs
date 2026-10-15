@@ -2,6 +2,17 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const source=fs.readFileSync(path.join(__dirname,'../src/utils/canvas-layout.ts'),'utf8');
 const sandbox={exports:{},Number,Set};vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2017}}).outputText,sandbox);
 const {inspectCanvas,escapeGraphText,fitCanvas}=sandbox.exports;
+test('detached nodes are not synthetic parallel StartProcess branches',()=>{
+ const model={activities:[{activityId:'start',type:'StartProcess'},{activityId:'main'},{activityId:'orphan'},{activityId:'child'}],connections:[{sourceId:'start',targetId:'main',outcome:'Done'},{sourceId:'orphan',targetId:'child',outcome:'Done'}]};
+ const before=JSON.stringify(model),graph=inspectCanvas(model);
+ assert.equal(graph.entryRoots.map(a=>a.activityId).join(','),'start');
+ assert.equal(graph.detached.map(a=>a.activityId).join(','),'orphan,child');
+ assert.equal(graph.connections.length,2);assert.equal(JSON.stringify(model),before);
+});
+test('generic workflows without StartProcess keep all entry candidates',()=>{
+ const graph=inspectCanvas({activities:[{activityId:'a'},{activityId:'b'}],connections:[]});
+ assert.equal(graph.entryRoots.length,2);assert.equal(graph.detached.length,0);
+});
 test('orthogonal routes retain endpoints and only contain axis-aligned segments',()=>{
  for(const vertical of [true,false]) {
    const points=[{x:17,y:23},{x:80,y:140},{x:230,y:210}],before=JSON.stringify(points);

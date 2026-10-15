@@ -622,7 +622,8 @@ export class ElsaWorkflowDesigner {
     (this.graph.graph() as any).rankdir = this.getLayoutDirection();
     const canvas = inspectCanvas(this.workflowModel);
     const issues = [...canvas.issues];
-    const rootActivities = canvas.roots;
+    const rootActivities = canvas.entryRoots;
+    if (canvas.detached.length) issues.push(`${canvas.detached.length} activities have no path from StartProcess. Detached nodes are shown separately; explicit starts/triggers may still execute them.`);
     const editable = this.mode === WorkflowDesignerMode.Edit;
     this.startNodeId = '__elsa_canvas_start__';
     while (canvas.activities.some(a => a.activityId === this.startNodeId)) this.startNodeId += '_';
@@ -663,7 +664,11 @@ export class ElsaWorkflowDesigner {
 
     canvas.activities.forEach(activity => {
 
-      this.graph.setNode(activity.activityId, this.createActivityOptions(activity));
+      const options = this.createActivityOptions(activity);
+      if (canvas.detached.some(a => a.activityId === activity.activityId)) {
+        options.label = `<div style="font-size:11px;color:#92400e;background:#fffbeb;padding:4px 8px;border:1px dashed #d97706;border-radius:4px">No path from StartProcess</div>${options.label}`;
+      }
+      this.graph.setNode(activity.activityId, options);
       const displayContext = activityDisplayContexts[activity.activityId] || undefined;
       const outcomes = !!displayContext ? displayContext.outcomes : activity.outcomes || [];
       if (!editable) return;
