@@ -173,9 +173,9 @@ export class ElsaWorkflowInstanceJournal {
         const preview = external ? 'Stored externally · reference only' : shape.kind === 'scalar' ? (shape.preview === '' ? '(empty string)' : shape.preview.slice(0,160)) : `${shape.count} ${Array.isArray(value) ? 'items' : 'fields'}`;
         const open = this.expandedVariable === name;
         return <article class={`uj-card ${open ? 'uj-selected' : ''}`} key={name}>
-          <button class="uj-row" aria-expanded={open ? 'true' : 'false'} onClick={() => this.expandedVariable = open ? undefined : name}>
-            <span class="uj-row-title"><strong>{name}</strong><span class="uj-badge uj-neutral">{type}</span></span>
-            <span class="uj-variable-preview">{preview}</span><span class="uj-meta">{open ? 'Hide value' : 'View value'}</span>
+          <button class="uj-variable-row" aria-expanded={open ? 'true' : 'false'} onClick={() => this.expandedVariable = open ? undefined : name}>
+            <strong class="uj-variable-name" title={name}>{name}</strong><span class="uj-badge uj-neutral">{type}</span>
+            <span class="uj-variable-preview">{preview}</span><span class="uj-variable-chevron" aria-hidden="true">{open ? '⌃' : '⌄'}</span>
           </button>
           {open && <div class="uj-details">{external && <p class="uj-note">This is a payload reference, not its contents. No external data is fetched by this view.</p>}
             {this.renderStructuredData(value, external ? 'Payload reference' : name, `variable:${name}`)}</div>}

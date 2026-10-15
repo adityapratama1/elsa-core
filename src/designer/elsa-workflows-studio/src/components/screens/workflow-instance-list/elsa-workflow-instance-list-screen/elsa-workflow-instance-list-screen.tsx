@@ -1,4 +1,4 @@
-import {Component, h, Method, Prop, State, Watch} from '@stencil/core';
+import {Component, h, Listen, Method, Prop, State, Watch} from '@stencil/core';
 import {injectHistory, LocationSegments, RouterHistory} from "@stencil/router";
 import * as collection from 'lodash/collection';
 import * as array from 'lodash/array';
@@ -16,6 +16,7 @@ import Tunnel from "../../../../data/dashboard";
 @Component({
   tag: 'elsa-workflow-instance-list-screen',
   shadow: false,
+  styleUrl: 'workflow-filter.css',
 })
 export class ElsaWorkflowInstanceListScreen {
   static readonly DEFAULT_PAGE_SIZE = 15;
@@ -40,6 +41,11 @@ export class ElsaWorkflowInstanceListScreen {
   @State() selectedOrderByState?: OrderBy = OrderBy.Started;
   @State() selectedWorkflowInstanceIds: Array<string> = [];
   @State() selectAllChecked: boolean;
+  @State() workflowFilterOpen = false;
+  @State() workflowFilterSearchTerm = '';
+  private workflowFilterElement?: HTMLElement;
+  private workflowSearchInput?: HTMLInputElement;
+  private focusWorkflowSearch = false;
 
   @State() currentPage: number = 0;
   @State() currentPageSize: number = ElsaWorkflowInstanceListScreen.DEFAULT_PAGE_SIZE;
@@ -57,6 +63,39 @@ export class ElsaWorkflowInstanceListScreen {
   disconnectedCallback() {
     if (!!this.unlistenRouteChanged)
       this.unlistenRouteChanged();
+  }
+
+  componentDidRender() {
+    if (this.workflowFilterOpen && this.focusWorkflowSearch) {
+      this.workflowSearchInput?.focus();
+      this.focusWorkflowSearch = false;
+    }
+  }
+
+  @Listen('click', {target: 'document'})
+  onWorkflowFilterOutsideClick(event: MouseEvent) {
+    if (this.workflowFilterOpen && !this.workflowFilterElement?.contains(event.target as Node))
+      this.workflowFilterOpen = false;
+  }
+
+  @Listen('keydown', {target: 'document'})
+  onWorkflowFilterKeydown(event: KeyboardEvent) {
+    if (this.workflowFilterOpen && event.key === 'Escape') {
+      this.workflowFilterOpen = false;
+      this.workflowFilterElement?.querySelector('button')?.focus();
+    }
+  }
+
+  private async selectWorkflowFilter(event: MouseEvent, workflowId?: string) {
+    event.preventDefault();
+    this.workflowFilterOpen = false;
+    this.workflowFilterSearchTerm = '';
+    if (this.history) {
+      this.history.push(this.buildFilterUrl(workflowId, this.selectedWorkflowStatus, this.selectedOrderByState, null, this.selectedCorrelationId));
+    } else {
+      this.currentPage = 0;
+      await this.handleWorkflowIdChanged(workflowId);
+    }
   }
 
   async componentWillLoad() {
@@ -692,26 +731,13 @@ export class ElsaWorkflowInstanceListScreen {
     const selectedWorkflowId = this.selectedWorkflowId;
     const selectedWorkflow = latestWorkflowBlueprints.find(x => x.id == selectedWorkflowId);
     const selectedWorkflowText = !selectedWorkflowId ? t('Filters.Workflow.Label') : !!selectedWorkflow && (selectedWorkflow.name || selectedWorkflow.displayName) ? (selectedWorkflow.displayName || selectedWorkflow.name) : t('Untitled');
-    const selectedWorkflowStatus = this.selectedWorkflowStatus;
-    const selectedOrderBy = this.selectedOrderByState;
-    const history = this.history;
-
-    let items: Array<DropdownButtonItem> = latestWorkflowBlueprints.map(x => {
-      const displayName = !!x.displayName && x.displayName.length > 0 ? x.displayName : x.name || t('Untitled');
-      const item: DropdownButtonItem = {text: displayName, value: x.id, isSelected: x.id == selectedWorkflowId};
-
-      if (!!history)
-        item.url = this.buildFilterUrl(x.id, selectedWorkflowStatus, selectedOrderBy, null, selectedCorrelationId);
-
-      return item;
-    });
-
-    const allItem: DropdownButtonItem = {text: t('Filters.Workflow.All'), value: null, isSelected: !selectedWorkflowId};
-
-    if (!!history)
-      allItem.url = this.buildFilterUrl(null, selectedWorkflowStatus, selectedOrderBy, null, selectedCorrelationId);
-
-    items = [allItem, ...items];
+    const term = this.workflowFilterSearchTerm.trim().toLowerCase();
+    const matches = latestWorkflowBlueprints.filter(x =>
+      !term || `${x.displayName || ''} ${x.name || ''} ${x.id || ''}`.toLowerCase().includes(term));
+    const renderOption = (id: string, label: string, selected: boolean) => <a
+      href={this.history ? this.buildFilterUrl(id,this.selectedWorkflowStatus,this.selectedOrderByState,null,selectedCorrelationId) : '#'}
+      class={`uwf-option ${selected ? 'uwf-selected' : ''}`} aria-current={selected ? 'true' : undefined}
+      onClick={event => this.selectWorkflowFilter(event,id)}>{label}</a>;
 
     const renderIcon = function () {
       return <svg class="elsa-mr-3 elsa-h-5 elsa-w-5 elsa-text-gray-400" fill="none" viewBox="0 0 24 24"
@@ -724,9 +750,21 @@ export class ElsaWorkflowInstanceListScreen {
       </svg>;
     };
 
-    return <elsa-dropdown-button text={selectedWorkflowText} items={items} icon={renderIcon()}
-                                 origin={DropdownButtonOrigin.TopRight}
-                                 onItemSelected={e => this.handleWorkflowIdChanged(e.detail.value)}/>
+    return <div class="uwf-filter" ref={element => this.workflowFilterElement = element}>
+      <button type="button" class="uwf-trigger" aria-expanded={this.workflowFilterOpen ? 'true' : 'false'}
+        onClick={() => { this.workflowFilterOpen = !this.workflowFilterOpen; this.focusWorkflowSearch = this.workflowFilterOpen; }}>
+        {renderIcon()}<span>{selectedWorkflowText}</span><span aria-hidden="true">⌄</span>
+      </button>
+      {this.workflowFilterOpen && <div class="uwf-menu">
+        <div class="uwf-search"><input type="search" aria-label="Search workflows" placeholder="Search workflows"
+          ref={input => this.workflowSearchInput = input} value={this.workflowFilterSearchTerm}
+          onInput={event => this.workflowFilterSearchTerm = (event.target as HTMLInputElement).value}/></div>
+        <div class="uwf-options">{renderOption(null,t('Filters.Workflow.All'),!selectedWorkflowId)}
+          {!matches.length && <p class="uwf-empty" role="status">No workflows found.</p>}
+          {matches.map(x => renderOption(x.id,x.displayName || x.name || t('Untitled'),x.id === selectedWorkflowId))}
+        </div>
+      </div>}
+    </div>;
   }
 
   renderStatusFilter() {
