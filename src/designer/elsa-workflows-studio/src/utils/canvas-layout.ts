@@ -12,7 +12,20 @@ export function inspectCanvas(model: WorkflowModel) {
     return true;
   });
   const targets = new Set(connections.map(c => c.targetId));
-  return {activities, connections, roots: activities.filter(a => !targets.has(a.activityId)), issues};
+  const roots = activities.filter(a => !targets.has(a.activityId));
+  // Distinguish the path from StartProcess; this does not change runtime entry selection.
+  const starts = roots.filter(a => a.type === 'StartProcess');
+  const entryRoots = starts.length ? starts : roots;
+  const reachable = new Set(entryRoots.map(a => a.activityId));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const c of connections) if (reachable.has(c.sourceId) && !reachable.has(c.targetId)) {
+      reachable.add(c.targetId); changed = true;
+    }
+  }
+  const detached = starts.length ? activities.filter(a => !reachable.has(a.activityId)) : [];
+  return {activities, connections, roots, entryRoots, detached, issues};
 }
 
 export function escapeGraphText(value: unknown): string {

@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][string]$AppRepositoryPath, [switch]$ReplaceUn
 $ErrorActionPreference = 'Stop'
 $studioBuild = Join-Path $PSScriptRoot 'dist/elsa-workflows-studio'
 $applicationRoot = (Resolve-Path -LiteralPath $AppRepositoryPath).Path
-$destination = Join-Path $applicationRoot 'FinansysApp/App.Web/wwwroot/elsa-dashboard-journal1'
+$destination = Join-Path $applicationRoot 'FinansysApp/App.Web/wwwroot/elsa-dashboard-journal2'
 if (!(Test-Path -LiteralPath (Join-Path $studioBuild 'elsa-workflows-studio.esm.js'))) { throw 'Build the pinned Stencil distribution first.' }
 if (!(Test-Path -LiteralPath (Join-Path $applicationRoot 'FinansysApp/App.Web/Web.Template.csproj'))) { throw 'Expected UniFi application repository.' }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null

@@ -60,3 +60,7 @@
 .unifi-journal .uj-warning {padding:9px;border-radius:6px;background:#fff5dc;color:#765112;font-size:12px}
 .unifi-journal .uj-empty {padding:20px 0;color:#59677e}
 @media(max-width:540px){.unifi-journal .uj-stats>div{padding:8px}.unifi-journal .uj-heading{flex-wrap:wrap}}
+.unifi-journal .uj-variables {display:grid;gap:8px;margin:10px 0}
+.unifi-journal .uj-variable-preview {display:block;font-size:12px;color:#334155;overflow-wrap:anywhere;white-space:pre-wrap;max-height:72px;overflow:auto}
+.unifi-journal .uj-variables .uj-row-title strong {overflow-wrap:anywhere;min-width:0}
+.unifi-journal .uj-variables .uj-badge {flex-shrink:0}
