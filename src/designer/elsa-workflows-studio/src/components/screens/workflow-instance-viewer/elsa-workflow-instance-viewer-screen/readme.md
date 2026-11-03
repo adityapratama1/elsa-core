@@ -51,11 +51,10 @@ graph TD;
   elsa-workflow-instance-viewer-screen --> elsa-designer-tree
   elsa-workflow-instance-viewer-screen --> x6-designer
   elsa-workflow-instance-viewer-screen --> context-consumer
-  elsa-workflow-instance-journal --> elsa-copy-button
-  elsa-workflow-instance-journal --> elsa-workflow-definition-editor-notifications
   elsa-workflow-instance-journal --> elsa-flyout-panel
   elsa-workflow-instance-journal --> elsa-tab-header
   elsa-workflow-instance-journal --> elsa-tab-content
+  elsa-workflow-instance-journal --> elsa-copy-button
   elsa-workflow-instance-journal --> elsa-modal-dialog
   elsa-studio-workflow-instances-view --> elsa-workflow-instance-viewer-screen
   style elsa-workflow-instance-viewer-screen fill:#f9f,stroke:#333,stroke-width:4px
