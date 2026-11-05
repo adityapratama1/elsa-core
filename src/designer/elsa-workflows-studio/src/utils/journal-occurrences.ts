@@ -114,3 +114,18 @@ export function journalValueShape(value: any) {
   });
   return {kind:table ? 'table' : 'array', count:value.length, keys:table ? keys : []};
 }
+
+// Read both direct fault payloads and historical Exception envelopes.
+// Bound traversal to tolerate malformed/cyclic journal evidence.
+export function journalFaultMessage(record: any): string {
+  let current = record?.data?.Exception || record?.data?.exception || record?.data;
+  const seen = new Set<any>();
+  let message = typeof record?.message === 'string' ? record.message : '';
+  for (let depth = 0; current && typeof current === 'object' && depth < 12 && !seen.has(current); depth++) {
+    seen.add(current);
+    const nextMessage = current.Message || current.message;
+    if (typeof nextMessage === 'string' && nextMessage.trim()) message = nextMessage;
+    current = current.InnerException || current.innerException;
+  }
+  return message || 'Activity fault recorded.';
+}

@@ -2,7 +2,7 @@ import {Component, Event, EventEmitter, h, Host, Method, Prop, State, Watch} fro
 import moment from 'moment';
 import {ActivityDescriptor, PagedList, WorkflowBlueprint, WorkflowExecutionLogRecord, WorkflowInstance, WorkflowModel} from '../../../../models';
 import {createElsaClient} from '../../../../services/elsa-client';
-import {JournalOccurrence, journalDuration, journalOccurrences, journalOutcomes, journalActivityOutput, journalValueShape} from '../../../../utils/journal-occurrences';
+import {JournalOccurrence, journalDuration, journalOccurrences, journalOutcomes, journalActivityOutput, journalValueShape, journalFaultMessage} from '../../../../utils/journal-occurrences';
 import {dashboardData} from '../../../../utils/dashboard-data';
 
 interface ExternalPayloadDescriptor {
@@ -230,7 +230,7 @@ export class ElsaWorkflowInstanceJournal {
   private renderOccurrence(x: JournalOccurrence) {
     const open = x.records.some(r => r.id === this.selectedRecordId);
     const fault = x.records.find(r => r.eventName === 'Faulted');
-    const exception = fault?.data?.Exception || fault?.data?.exception;
+    const exception = fault?.data?.Exception || fault?.data?.exception || fault?.data;
     const status = x.outcome === 'Faulted' ? 'uj-faulted' : x.outcome === 'Awaiting result' ? 'uj-waiting' : 'uj-neutral';
     const outcomes = journalOutcomes(x);
     const descriptor = this.activityDescriptors.find(d => d.type === x.representative.activityType);
@@ -242,7 +242,7 @@ export class ElsaWorkflowInstanceJournal {
         {!!outcomes.length && <span class="uj-outcomes" aria-label="Recorded outcomes"><span class="uj-meta">Outcomes</span>{outcomes.map(outcome => <span class="uj-outcome">{outcome}</span>)}</span>}
         <span class="uj-meta">{x.records.length} raw event{x.records.length === 1 ? '' : 's'} · {open ? 'Hide details' : 'View details'}</span>
       </button>
-      {fault && <p class="uj-fault-message">{dashboardData(exception?.Message || exception?.message || fault.message || 'Activity fault recorded.')}</p>}
+      {fault && <p class="uj-fault-message">{dashboardData(journalFaultMessage(fault))}</p>}
       {open && <div class="uj-details">
         <dl class="uj-properties"><div><dt>Activity ID</dt><dd>{x.activityId} <elsa-copy-button value={x.activityId}/></dd></div>
           <div><dt>Started</dt><dd>{this.date(x.startedAt)}</dd></div><div><dt>Ended</dt><dd>{this.date(x.endedAt)}</dd></div>

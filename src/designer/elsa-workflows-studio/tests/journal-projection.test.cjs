@@ -90,3 +90,15 @@ test('log API sends page zero, so journal reads are bounded', () => {
  const logSection=client.split('workflowExecutionLogApi: {')[1].split('scriptingApi: {')[0];
  assert.match(logSection,/page !== undefined && page !== null/);
 });
+
+test('fault summary follows direct payload and inner exception envelopes',()=>{
+ const leaf={Message:'USER_LOOKUP_PERMISSION_DENIED: Read access to Application User is required.'};
+ const data={Message:'Failed to set property',InnerException:{Message:'Failed to evaluate expression',InnerException:leaf}};
+ assert.equal(sandbox.exports.journalFaultMessage({data}),leaf.Message);
+ assert.equal(sandbox.exports.journalFaultMessage({data:{Exception:data}}),leaf.Message);
+ assert.equal(sandbox.exports.journalFaultMessage({data:null,message:'Recorded failure'}),'Recorded failure');
+});
+test('fault summary tolerates cyclic evidence',()=>{
+ const data={Message:'Known failure'};data.InnerException=data;
+ assert.equal(sandbox.exports.journalFaultMessage({data}),'Known failure');
+});
