@@ -43,3 +43,5 @@ test('revealed copy is audited through a new request and stale responses cannot 
 });
 
 test('selecting an activity closes inspection instead of opening an empty modal',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();let hidden=0;c.inspectionDialog={hide:()=>hidden++,show:()=>{throw Error('Must not open during selection');}};c.selectRecord(undefined);assert.equal(hidden,1);assert.equal(c.inspectionText,'');});
+
+test('Copy remains available for a loaded lazy field when search has no matches',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();c.inspectionReference='signed';c.inspectionText='';c.inspectionSearch='missing';const copy=nodes(c.renderInspectionDialog()).find(x=>x.tag==='button'&&x.props['aria-label']==='Copy masked JSON');assert.equal(copy.props.disabled,false);});
