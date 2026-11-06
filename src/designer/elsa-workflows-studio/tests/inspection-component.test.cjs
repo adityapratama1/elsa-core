@@ -41,3 +41,5 @@ test('revealed copy is audited through a new request and stale responses cannot 
  await workers[0].onmessage({data:{text:'complete original',copy:true}});await copying;assert.equal(copied,'complete original');
  const pending=c.fetchInspection(true);c.clearInspection();await workers[1].onmessage({data:{text:'late-original',total:13,offset:0}});await pending;assert.equal(c.inspectionText,'');
 });
+
+test('selecting an activity closes inspection instead of opening an empty modal',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();let hidden=0;c.inspectionDialog={hide:()=>hidden++,show:()=>{throw Error('Must not open during selection');}};c.selectRecord(undefined);assert.equal(hidden,1);assert.equal(c.inspectionText,'');});

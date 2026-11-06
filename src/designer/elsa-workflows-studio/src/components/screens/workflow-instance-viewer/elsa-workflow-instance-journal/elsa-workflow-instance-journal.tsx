@@ -168,7 +168,7 @@ export class ElsaWorkflowInstanceJournal {
   async workflowInstanceIdChangedHandler() {
     this.clearInspection();
     this.inspectionSearch = '';
-    if (this.inspectionDialog) await this.inspectionDialog.show(false);
+    if (this.inspectionDialog) await this.inspectionDialog.hide(false);
     this.selectedRecordId = undefined;
     this.selectedActivityId = undefined;
     this.records = {items: [], totalCount: 0};
@@ -214,7 +214,7 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private selectRecord(record?: WorkflowExecutionLogRecord) {
-    this.clearInspection(); if (this.inspectionDialog) void this.inspectionDialog.show(false);
+    this.clearInspection(); if (this.inspectionDialog) void this.inspectionDialog.hide(false);
     const activity = this.workflowBlueprint?.activities?.find(x => x.id === record?.activityId);
     this.selectedRecordId = record?.id;
     this.selectedActivityId = activity ? activity.parentId && activity.parentId !== this.workflowBlueprint.id ? activity.parentId : activity.id : record?.activityId;
