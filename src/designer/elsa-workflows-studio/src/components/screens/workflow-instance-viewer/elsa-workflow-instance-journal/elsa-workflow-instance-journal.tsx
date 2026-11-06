@@ -293,10 +293,7 @@ export class ElsaWorkflowInstanceJournal {
           <p class="uj-note">{output.source === 'execution' ? 'Output recorded in this execution.' : 'Latest persisted activity output/state. It may belong to a later execution; this is not a historical output snapshot.'}</p>
           {this.renderStructuredData(output.value, 'Activity Output', `output:${x.id}`)}</details>}
         {exception && <details class="uj-raw"><summary>Exception details</summary>{this.renderData(exception, 'Exception details', `exception:${x.id}`)}</details>}
-        <details class="uj-raw uj-raw-events"><summary>Raw Process Engine events · {x.records.length}</summary><p class="uj-note">Technical evidence. Original event names and timestamps are preserved. Event spacing is not activity duration.</p>
-        {x.records.map(r => <details class="uj-raw" key={r.id}><summary><span>{r.eventName}</span><time>{this.date(r.timestamp)}</time></summary>
-          {this.renderData({id: r.id, rawEventName: r.eventName, timestamp: r.timestamp, message: r.message, data: r.data}, 'Raw event data', `raw:${r.id}`)}</details>)}
-        </details>
+
       </div>}
     </li>;
   }
