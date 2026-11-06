@@ -191,19 +191,21 @@ export class ElsaWorkflowInstanceJournal {
       ? Object.entries(original) : [['Value', original]];
     return <section class="uj-structured" aria-label={label}>
       <div class="uj-data-header"><strong>{label}</strong></div>
-      <p class="uj-note uj-preview-note">Select a field to view its content. Sensitive values are hidden.</p>
+      <p class="uj-note uj-preview-note">Sensitive values are hidden. Open large values to view their content.</p>
       <dl class="uj-fields">{entries.map(([name, item]) => {
         const safe = dashboardData({[name]: item})[name];
         const complex = item !== null && typeof item === 'object';
         const large = typeof item === 'string' && item.length > 400;
+        const outcomeBadges = name.toLowerCase() === 'outcomes' && Array.isArray(safe) && safe.length <= 30 && safe.every(outcome => typeof outcome === 'string' && outcome.length <= 80);
+        const inspectable = large || (complex && !outcomeBadges);
         return <div><dt>{name}</dt><dd class="uj-field-content">
           <div class="uj-field-summary">{complex
-            ? name.toLowerCase() === 'outcomes' && Array.isArray(safe)
+            ? outcomeBadges
               ? <span class="uj-outcomes">{safe.map(outcome => <span class="uj-outcome">{String(outcome)}</span>)}</span>
               : <span class="uj-meta">{Array.isArray(item) ? `${item.length.toLocaleString()} items` : 'Object'}</span>
             : large ? <span class="uj-meta">Text · {item.length.toLocaleString()} characters</span> : this.renderValue(safe)}</div>
-          <button class="uj-button" disabled={item === undefined} aria-label={`View ${name} content`}
-            onClick={() => this.inspectValue({[name]: item}, name)}>View content</button>
+          {inspectable && <button class="uj-button" aria-label={`View ${name} content`}
+            onClick={() => this.inspectValue({[name]: item}, name)}>View content</button>}
         </dd></div>;
       })}</dl>
       {!entries.length && <p class="uj-note">No recorded fields.</p>}
