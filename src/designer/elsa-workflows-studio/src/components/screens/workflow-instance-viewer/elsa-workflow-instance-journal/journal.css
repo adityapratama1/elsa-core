@@ -83,3 +83,18 @@
 
 .unifi-journal .uj-attention{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff8e9;border:1px solid #f0deb3;border-radius:8px;padding:12px;margin:12px 0;color:#78561b;font-size:12px;line-height:1.6}
 .unifi-journal .uj-attention .uj-button{flex-shrink:0}
+
+.unifi-journal .uj-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.unifi-journal .uj-structured>.uj-data-header{align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px}
+.unifi-journal .uj-preview-note{margin:0 0 12px;font-size:11px}
+.unifi-journal .uj-inspection{padding:24px;max-height:80vh;overflow:auto}
+.unifi-journal .uj-inspection-heading{margin-bottom:14px;align-items:center}
+.unifi-journal .uj-inspection-heading h2{font-size:17px}
+.unifi-journal .uj-inspection-heading p{margin:4px 0 0;font-size:12px}
+.unifi-journal .uj-inspection-heading .uj-button{flex-shrink:0}
+.unifi-journal .uj-inspection-meta{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:9px 0}
+.unifi-journal .uj-limits{margin:0;max-width:65%;text-align:right}
+.unifi-journal .uj-limits summary{padding:0;font-size:11px;color:#64748b}
+.unifi-journal .uj-limits p{margin:5px 0;text-align:left}
+.unifi-journal .uj-inspection-json{margin:0;min-height:100px;max-height:50vh}
+@media(max-width:540px){.unifi-journal .uj-actions{flex-wrap:wrap}.unifi-journal .uj-inspection{padding:16px}.unifi-journal .uj-inspection-heading{align-items:flex-start;flex-wrap:wrap}.unifi-journal .uj-inspection-meta{flex-wrap:wrap}.unifi-journal .uj-limits{max-width:100%;text-align:left}}

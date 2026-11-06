@@ -46,13 +46,13 @@ export class ElsaWorkflowInstanceJournal {
   private renderInspectionDialog() {
     const query = this.inspectionSearch.trim().toLowerCase();
     const lines = this.inspectionText.split('\n').filter(line => !query || line.toLowerCase().includes(query));
-    return <elsa-modal-dialog dialogWidth="90vw" ref={el => this.inspectionDialog = el}>
+    return <elsa-modal-dialog dialogWidth="64rem" ref={el => this.inspectionDialog = el}>
       <div slot="content" class="unifi-journal uj-inspection">
-        <header class="uj-heading"><div><h2>{this.inspectionTitle}</h2><p>Sanitized inspection · Sensitive values remain hidden.</p></div><button class="uj-button" onClick={() => this.inspectionDialog.show(false)}>Close</button></header>
+        <header class="uj-heading uj-inspection-heading"><div><h2>{this.inspectionTitle}</h2><p>Sensitive values are hidden.</p></div>
+          <button class="uj-button" onClick={() => this.copyData(JSON.parse(this.inspectionText), 'inspection', true)}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy sanitized JSON'}</button></header>
         <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => this.inspectionSearch = (e.target as HTMLInputElement).value}/>
-        <p class="uj-note" role="status">{query ? `${lines.length} matching lines. ` : ''}Display capped at 200,000 characters; up to 2,000 entries. Copy includes sanitized content and limit markers.</p>
+        <div class="uj-inspection-meta"><span class="uj-note" role="status">{query ? `${lines.length} matching lines` : 'Sanitized JSON'}</span><details class="uj-limits"><summary>Inspection limits</summary><p class="uj-note">Display: 200,000 characters and 5,000 lines. Inspection: up to 2,000 entries. Copy includes bounded sanitized content and any limit markers.</p></details></div>
         <pre class="uj-json uj-inspection-json" tabIndex={0}>{lines.length ? lines.slice(0,5000).join('\n').slice(0,200000) : 'No matching fields or values.'}</pre>
-        <button class="uj-button" onClick={() => this.copyData(JSON.parse(this.inspectionText), 'inspection', true)}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy sanitized JSON'}</button>
         {this.copyErrorKey === 'inspection' && <p role="alert" class="uj-warning">Clipboard unavailable. Select the text above to copy it manually.</p>}
       </div>
     </elsa-modal-dialog>;
@@ -153,9 +153,9 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private renderData(value: any, label: string, key: string) {
-    return <div class="uj-data"><div class="uj-data-header"><strong>{label}</strong>
+    return <div class="uj-data"><div class="uj-data-header"><strong>{label}</strong><div class="uj-actions">
       <button class="uj-button" disabled={value === undefined} onClick={() => this.inspectValue(value, label)}>Inspect content</button>
-      <button class="uj-button" aria-label={`Copy ${label}`} disabled={value === undefined} onClick={() => this.copyData(value, key)}>{this.copiedKey === key ? 'Copied' : 'Copy JSON'}</button></div>
+      <button class="uj-button" aria-label={`Copy ${label} preview`} disabled={value === undefined} onClick={() => this.copyData(value, key)}>{this.copiedKey === key ? 'Copied' : 'Copy preview'}</button></div></div>
       {this.copyErrorKey === key && <p role="alert" class="uj-warning">Clipboard access failed. Allow clipboard access or select the text below to copy it manually.</p>}
       <pre class="uj-json">{this.raw(value)}</pre></div>;
   }
@@ -182,12 +182,12 @@ export class ElsaWorkflowInstanceJournal {
   private renderStructuredData(value: any, label: string, key: string) {
     const original = value;
     value = dashboardData(value);
-    return <section class="uj-structured" aria-label={label}><div class="uj-data-header"><strong>{label}</strong>
-      <button class="uj-button" aria-label={`Copy ${label}`} disabled={value === undefined} onClick={() => this.copyData(value,key)}>{this.copiedKey === key ? 'Copied' : 'Copy JSON'}</button></div>
+    return <section class="uj-structured" aria-label={label}><div class="uj-data-header"><strong>{label}</strong><div class="uj-actions">
+      <button class="uj-button" disabled={original === undefined} onClick={() => this.inspectValue(original, label)}>Inspect content</button>
+      <button class="uj-button" aria-label={`Copy ${label} preview`} disabled={value === undefined} onClick={() => this.copyData(value,key)}>{this.copiedKey === key ? 'Copied' : 'Copy preview'}</button></div></div>
       {this.copyErrorKey === key && <p role="alert" class="uj-warning">Clipboard access failed. Open Raw JSON to copy the text manually.</p>}
-      <p class="uj-note">Preview only. Display limits do not change persisted values.</p>
-      <button class="uj-button" onClick={() => this.inspectValue(original, label)}>Inspect content</button>
-      {this.renderValue(value)}<details class="uj-raw"><summary>Raw JSON · sanitized preview</summary>{this.renderData(value,'Raw JSON',`${key}:json`)}</details></section>;
+      <p class="uj-note uj-preview-note">Preview · sensitive values hidden</p>
+      {this.renderValue(value)}<details class="uj-raw"><summary>Raw JSON preview</summary><pre class="uj-json">{this.raw(value)}</pre></details></section>;
   }
 
   render() {
