@@ -108,7 +108,8 @@ export class ElsaWorkflowInstanceViewerScreen {
         // The dashboard is an inspection surface. Keep externally stored values as
         // references and fetch an individual value only when the user asks to view it.
         workflowInstance = await client.workflowInstancesApi.getStorageView(workflowInstanceId);
-        workflowBlueprint = await client.workflowRegistryApi.get(workflowInstance.definitionId, {version: workflowInstance.version});
+        workflowBlueprint = (workflowInstance as any).inspectionGraph;
+        if(!workflowBlueprint)throw new Error('Inspection graph is unavailable.');
       } catch {
         if(loadVersion===this.inspectionLoadVersion)this.inspectionLoadError='Workflow inspection could not be loaded. Check access and refresh the page.';return;
       }
