@@ -41,6 +41,7 @@ export class ElsaWorkflowInstanceViewerScreen {
   @State() workflowModel: WorkflowModel;
   @State() selectedActivityId?: string;
   @State() activityStats?: ActivityStats;
+  @State() inspectionLoadError?: string;
 
   @State() activityContextMenuState: ActivityContextMenuState = {
     shown: false,
@@ -54,6 +55,7 @@ export class ElsaWorkflowInstanceViewerScreen {
   journal: HTMLElsaWorkflowInstanceJournalElement;
   contextMenu: HTMLElement;
   layoutDirection = LayoutDirection.TopBottom;
+  private inspectionLoadVersion=0;
 
   @Method()
   async getServerUrl(): Promise<string> {
@@ -62,6 +64,8 @@ export class ElsaWorkflowInstanceViewerScreen {
 
   @Watch('workflowInstanceId')
   async workflowInstanceIdChangedHandler(newValue: string) {
+    const loadVersion=++this.inspectionLoadVersion;
+    this.workflowInstance=undefined;
     const workflowInstanceId = newValue;
     let workflowInstance: WorkflowInstance = {
       id: null,
@@ -96,6 +100,7 @@ export class ElsaWorkflowInstanceViewerScreen {
       propertyStorageProviders: {}
     };
 
+    this.inspectionLoadError=undefined;
     const client = await createElsaClient(this.serverUrl);
 
     if (workflowInstanceId && workflowInstanceId.length > 0) {
@@ -105,10 +110,11 @@ export class ElsaWorkflowInstanceViewerScreen {
         workflowInstance = await client.workflowInstancesApi.getStorageView(workflowInstanceId);
         workflowBlueprint = await client.workflowRegistryApi.get(workflowInstance.definitionId, {version: workflowInstance.version});
       } catch {
-        console.warn(`The specified workflow definition does not exist. Creating a new one.`);
+        if(loadVersion===this.inspectionLoadVersion)this.inspectionLoadError='Workflow inspection could not be loaded. Check access and refresh the page.';return;
       }
     }
 
+    if(loadVersion!==this.inspectionLoadVersion)return;
     this.updateModels(workflowInstance, workflowBlueprint);
   }
 
@@ -268,11 +274,14 @@ export class ElsaWorkflowInstanceViewerScreen {
       return;
     }
 
+    if((this.workflowInstance as any)?.inspectionEnabled){this.activityContextMenuState={...e.detail,shown:false};await this.journal.selectActivityRecord(e.detail.activity.activityId);return;}
     const elsaClient = await createElsaClient(this.serverUrl);
     this.activityStats = await elsaClient.activityStatsApi.get(this.workflowInstanceId, e.detail.activity.activityId);
   }
 
   render() {
+    if(this.inspectionLoadError)return <Host><p role="alert">{this.inspectionLoadError}</p></Host>;
+    if(!this.workflowInstance)return <Host><p role="status">Loading workflow inspection…</p></Host>;
     const descriptors: Array<ActivityDescriptor> = state.activityDescriptors;
     return (
       <Host class="elsa-flex elsa-flex-col elsa-w-full elsa-relative" ref={el => this.el = el}>

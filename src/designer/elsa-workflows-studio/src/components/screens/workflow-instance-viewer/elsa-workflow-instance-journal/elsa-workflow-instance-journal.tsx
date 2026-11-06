@@ -1,7 +1,8 @@
 import {Component, Event, EventEmitter, h, Host, Method, Prop, State, Watch} from '@stencil/core';
 import moment from 'moment';
+import {createInspectionWorker} from '../../../../utils/inspection-worker';
 import {ActivityDescriptor, PagedList, WorkflowBlueprint, WorkflowExecutionLogRecord, WorkflowInstance, WorkflowModel} from '../../../../models';
-import {createElsaClient} from '../../../../services/elsa-client';
+import {createHttpClient, createElsaClient} from '../../../../services/elsa-client';
 import {JournalOccurrence, journalDuration, journalOccurrences, journalOutcomes, journalActivityOutput, journalValueShape, journalFaultMessage, journalResult} from '../../../../utils/journal-occurrences';
 import {dashboardData, inspectionData} from '../../../../utils/dashboard-data';
 
@@ -37,12 +38,87 @@ export class ElsaWorkflowInstanceJournal {
   @State() inspectionVisibleChars = 20000;
   inspectionDialog: HTMLElsaModalDialogElement;
 
+  @State() inspectionBusy = false;
+  @State() inspectionRevealed = false;
+  @State() inspectionError?: string;
+  @State() inspectionTotal = 0;
+  @State() inspectionOffset = 0;
+  private inspectionWorker?: Worker;
+  private inspectionReference?: string;
+  private inspectionAbort?: AbortController;
+  private inspectionGeneration = 0;
+
+  private clearInspection() {
+    this.inspectionGeneration++;
+    this.inspectionAbort?.abort();
+    this.inspectionWorker?.terminate();this.inspectionWorker=undefined;
+    this.inspectionAbort = undefined;
+    this.inspectionText = '';
+    this.inspectionRevealed = false;
+    this.inspectionBusy = false;
+    this.inspectionReference = undefined;
+    this.inspectionError = undefined;
+  }
+
+  private async fetchInspection(reveal: boolean, action = 'view') {
+    const reference = this.inspectionReference;
+    if (!reference) return;
+    this.inspectionAbort?.abort();
+    const abort = new AbortController(); this.inspectionAbort = abort;
+    const generation = ++this.inspectionGeneration;
+    this.inspectionBusy = true; this.inspectionText = ''; this.inspectionError = undefined;this.copiedKey=undefined;this.copyErrorKey=undefined;this.inspectionSearch='';
+    this.inspectionRevealed = false;
+    this.inspectionWorker?.terminate();
+    this.inspectionOffset=0;this.inspectionTotal=0;
+    try {
+      const worker=createInspectionWorker();this.inspectionWorker=worker;
+      await new Promise<void>((resolve,reject) => {
+        const timer=setTimeout(() => {worker.terminate();reject(new Error('Inspection timed out. Retry to load content.'));},120000);
+        abort.signal.addEventListener('abort',()=>{clearTimeout(timer);worker.terminate();reject(new Error('Inspection cancelled.'));},{once:true});
+        worker.onerror=()=>{clearTimeout(timer);reject(new Error('Content processing failed. Retry or download JSON.'));};
+        worker.onmessage=async ({data})=>{
+          clearTimeout(timer);
+          if(generation!==this.inspectionGeneration){resolve();return;}
+          if(data.error){reject(new Error(data.error));return;}
+          if(data.copy){try{await navigator.clipboard.writeText(data.text);this.copiedKey='inspection';}catch{this.copyErrorKey='inspection';}worker.postMessage({id:generation,command:'window',offset:0,query:''});}
+          else{this.inspectionText=data.text;this.inspectionTotal=data.total;this.inspectionOffset=data.offset;}
+          this.inspectionRevealed=reveal;resolve();
+        };
+        worker.postMessage({id:generation,command:'load',url:new URL('/api/dashboard/workflow-inspection/content',this.serverUrl).href,
+          csrf:(this.workflowInstance as any)?.inspectionCsrf||'',reference,reveal,action});
+      });
+    }catch(error){if(generation===this.inspectionGeneration)this.inspectionError=error.message;}
+    finally{if(generation===this.inspectionGeneration)this.inspectionBusy=false;}
+  }
+
+  private inspectionWindow(offset = 0) {
+    this.inspectionWorker?.postMessage({id:this.inspectionGeneration,command:'window',offset,query:this.inspectionSearch});
+  }
+
+  private async copyInspection() {
+    if (!this.inspectionReference) return this.copyData(JSON.parse(this.inspectionText), 'inspection', true);
+    await this.fetchInspection(this.inspectionRevealed, 'copy');
+  }
+
+  private downloadInspection() {
+    const form = document.createElement('form'); form.method='POST';
+    form.action = new URL('/api/dashboard/workflow-inspection/download', this.serverUrl).href;
+    const frame=document.createElement('iframe');const generation=this.inspectionGeneration;frame.onload=()=>{if(generation!==this.inspectionGeneration)return;try{if(frame.contentDocument?.body?.textContent?.trim())this.inspectionError='Download could not be completed. Refresh the workflow and retry.';}catch{this.inspectionError='Download could not be completed. Check your access and retry.';}};frame.name='workflow-inspection-download';frame.style.display='none';document.body.appendChild(frame);form.target=frame.name;form.style.display='none';setTimeout(()=>frame.remove(),120000);
+    for (const [name,value] of Object.entries({Reference:this.inspectionReference,Reveal:String(this.inspectionRevealed),Action:'download',__RequestVerificationToken:(this.workflowInstance as any)?.inspectionCsrf || ''})) {
+      const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.appendChild(input);
+    }
+    document.body.appendChild(form);form.submit();form.remove();
+  }
+
   private inspectValue(value: any, title: string) {
+    this.clearInspection();
     this.copiedKey = undefined;
     this.copyErrorKey = undefined;
     this.inspectionTitle = title;
     this.inspectionSearch = '';
     this.inspectionVisibleChars = 20000;
+    const descriptor = Object.values(value || {}).map((x:any) => x?.$inspection).find(Boolean) as any;
+    if (descriptor) {this.inspectionReference=descriptor.reference;this.inspectionDialog.show(true);void this.fetchInspection(false);return;}
     try { this.inspectionText = JSON.stringify(inspectionData(value), null, 2) || 'null'; }
     catch { this.inspectionText = JSON.stringify({inspectionError:'This value could not be serialized for inspection. No raw content was exposed.'}); }
     this.inspectionDialog.show(true);
@@ -50,17 +126,25 @@ export class ElsaWorkflowInstanceJournal {
 
   private renderInspectionDialog() {
     const query = this.inspectionSearch.trim().toLowerCase();
-    const lines = this.inspectionText.split('\n').filter(line => !query || line.toLowerCase().includes(query));
+    const lines = this.inspectionReference ? [this.inspectionText] : this.inspectionText.split('\n').filter(line => !query || line.toLowerCase().includes(query));
     const content = lines.join('\n');
-    return <elsa-modal-dialog dialogWidth="64rem" ref={el => this.inspectionDialog = el}>
+    return <elsa-modal-dialog dialogWidth="64rem" onHidden={() => this.clearInspection()} ref={el => this.inspectionDialog = el}>
       <div slot="content" class="unifi-journal uj-inspection">
-        <header class="uj-heading uj-inspection-heading"><div><h2>{this.inspectionTitle}</h2><p>Sensitive values are hidden.</p></div>
-          <button class="uj-button" aria-label="Copy sanitized inspected JSON" onClick={() => this.copyData(JSON.parse(this.inspectionText), 'inspection', true)}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy JSON'}</button></header>
-        <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => {this.inspectionSearch = (e.target as HTMLInputElement).value; this.inspectionVisibleChars = 20000;}}/>
-        <p class="uj-note" role="status">{query ? `${lines.length} matching lines. ` : ''}Copy JSON includes all sanitized content, regardless of search or visible text.</p>
+        <header class="uj-heading uj-inspection-heading"><div><h2>{this.inspectionTitle}</h2><p>{this.inspectionRevealed ? 'Original content is visible, including sensitive values.' : 'Sensitive values are hidden.'}</p></div>
+          <button class="uj-button" aria-label={this.inspectionReference ? this.inspectionRevealed ? 'Copy original JSON' : 'Copy masked JSON' : 'Copy sanitized inspected JSON'} disabled={this.inspectionBusy || !this.inspectionText} onClick={() => this.copyInspection()}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy JSON'}</button></header>
+        {this.inspectionReference && <div class="uj-actions">
+          <button class="uj-button" disabled={this.inspectionBusy} onClick={() => {const reveal=!this.inspectionRevealed;void this.fetchInspection(reveal);}}>{this.inspectionRevealed ? 'Hide' : 'Show'}</button>
+          <button class="uj-button" disabled={this.inspectionBusy} onClick={() => this.downloadInspection()}>Download JSON</button>
+          {this.inspectionBusy && <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button>}
+        </div>}
+        {this.inspectionBusy && <p role="status">Loading content…</p>}
+        {this.inspectionError && <div role="alert"><p>{this.inspectionError}</p><button class="uj-button" onClick={() => this.fetchInspection(false)}>Retry</button></div>}
+        <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => {this.inspectionSearch = (e.target as HTMLInputElement).value; this.inspectionVisibleChars = 20000;if(this.inspectionReference)this.inspectionWindow();}}/>
+        <p class="uj-note" role="status">{query ? `${lines.length} matching lines. ` : ''}Copy JSON follows Show / Hide and includes the full content, regardless of visible text.</p>
         <pre class="uj-json uj-inspection-json" tabIndex={0}>{content ? content.slice(0,this.inspectionVisibleChars) : 'No matching fields or values.'}</pre>
-        {content.length > this.inspectionVisibleChars && <div class="uj-inspection-meta"><span class="uj-note">Showing {this.inspectionVisibleChars.toLocaleString()} of {content.length.toLocaleString()} characters</span><div class="uj-actions"><button class="uj-button" onClick={() => this.inspectionVisibleChars += 100000}>Show more</button><button class="uj-button" onClick={() => this.inspectionVisibleChars = content.length}>Show all</button></div></div>}
-        {this.copyErrorKey === 'inspection' && <p role="alert" class="uj-warning">Clipboard unavailable. Select the text above to copy it manually.</p>}
+        {this.inspectionReference && this.inspectionTotal>20000 && <div class="uj-actions"><button class="uj-button" disabled={this.inspectionOffset===0} onClick={()=>this.inspectionWindow(Math.max(0,this.inspectionOffset-20000))}>Previous</button><span class="uj-note">Characters {this.inspectionOffset+1}–{Math.min(this.inspectionOffset+20000,this.inspectionTotal)} of {this.inspectionTotal.toLocaleString()}</span><button class="uj-button" disabled={this.inspectionOffset+20000>=this.inspectionTotal} onClick={()=>this.inspectionWindow(this.inspectionOffset+20000)}>Next</button></div>}
+        {!this.inspectionReference && content.length > this.inspectionVisibleChars && <div class="uj-inspection-meta"><span class="uj-note">Showing {this.inspectionVisibleChars.toLocaleString()} of {content.length.toLocaleString()} characters</span><div class="uj-actions"><button class="uj-button" onClick={() => this.inspectionVisibleChars += 100000}>Show more</button><button class="uj-button" onClick={() => this.inspectionVisibleChars = content.length}>Show all</button></div></div>}
+        {this.copyErrorKey === 'inspection' && <p role="alert" class="uj-warning">Clipboard unavailable. Download JSON to save the full content, or select the visible text.</p>}
       </div>
     </elsa-modal-dialog>;
   }
@@ -82,7 +166,7 @@ export class ElsaWorkflowInstanceJournal {
 
   @Watch('workflowInstanceId')
   async workflowInstanceIdChangedHandler() {
-    this.inspectionText = '';
+    this.clearInspection();
     this.inspectionSearch = '';
     if (this.inspectionDialog) await this.inspectionDialog.show(false);
     this.selectedRecordId = undefined;
@@ -100,7 +184,7 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   async componentWillLoad() { await this.workflowInstanceIdChangedHandler(); }
-  disconnectedCallback() { this.requestVersion++; }
+  disconnectedCallback() { this.requestVersion++; this.clearInspection(); }
 
   private async loadRecords(append = false) {
     const id = this.workflowInstanceId;
@@ -111,7 +195,7 @@ export class ElsaWorkflowInstanceJournal {
     const page = append ? this.page + 1 : 0;
     try {
       const client = await createElsaClient(this.serverUrl);
-      const response = await client.workflowExecutionLogApi.get(id, page, this.pageSize);
+      const response = (await (await createHttpClient(this.serverUrl)).get(`api/dashboard/workflow-inspection/${id}/journal`, {params:{page,pageSize:this.pageSize}})).data;
       if (version !== this.requestVersion || id !== this.workflowInstanceId) return;
       const items = append ? [...this.records.items, ...response.items] : response.items;
       const unique = new Map(items.map(x => [x.id, x]));
@@ -130,6 +214,7 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private selectRecord(record?: WorkflowExecutionLogRecord) {
+    this.clearInspection(); if (this.inspectionDialog) void this.inspectionDialog.show(false);
     const activity = this.workflowBlueprint?.activities?.find(x => x.id === record?.activityId);
     this.selectedRecordId = record?.id;
     this.selectedActivityId = activity ? activity.parentId && activity.parentId !== this.workflowBlueprint.id ? activity.parentId : activity.id : record?.activityId;
@@ -160,6 +245,7 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private renderData(value: any, label: string, key: string) {
+    if ((this.workflowInstance as any)?.inspectionEnabled) return this.renderStructuredData(value,label,key);
     return <div class="uj-data"><div class="uj-data-header"><strong>{label}</strong><div class="uj-actions">
       <button class="uj-button" disabled={value === undefined} onClick={() => this.inspectValue(value, label)}>Inspect content</button>
 </div></div>
@@ -194,12 +280,13 @@ export class ElsaWorkflowInstanceJournal {
       <p class="uj-note uj-preview-note">Sensitive values are hidden. Open large values to view their content.</p>
       <dl class="uj-fields">{entries.map(([name, item]) => {
         const safe = dashboardData({[name]: item})[name];
+        const descriptor = (item as any)?.$inspection;
         const complex = item !== null && typeof item === 'object';
         const large = typeof item === 'string' && item.length > 400;
         const outcomeBadges = name.toLowerCase() === 'outcomes' && Array.isArray(safe) && safe.length <= 30 && safe.every(outcome => typeof outcome === 'string' && outcome.length <= 80);
-        const inspectable = large || (complex && !outcomeBadges);
+        const inspectable = !!descriptor || large || (complex && !outcomeBadges);
         return <div><dt>{name}</dt><dd class="uj-field-content">
-          <div class="uj-field-summary">{complex
+          <div class="uj-field-summary">{descriptor ? <span class="uj-meta">{descriptor.sensitive ? '[REDACTED]' : `${descriptor.kind}${descriptor.bytes != null ? ' · ' + this.formatBytes(descriptor.bytes) : ''}`}</span> : complex
             ? outcomeBadges
               ? <span class="uj-outcomes">{safe.map(outcome => <span class="uj-outcome">{String(outcome)}</span>)}</span>
               : <span class="uj-meta">{Array.isArray(item) ? `${item.length.toLocaleString()} items` : 'Object'}</span>
@@ -330,6 +417,7 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private renderState() {
+    if ((this.workflowInstance as any)?.inspectionEnabled) {const state=this.workflowInstance?.activityData?.[this.selectedActivityId];return state ? this.renderStructuredData(state,'Latest activity state','state') : <p class="uj-empty">Select an activity to inspect its latest persisted state.</p>;}
     const activity = this.workflowModel?.activities?.find(x => x.activityId === this.selectedActivityId);
     return activity ? this.renderData({...activity, properties: activity.properties?.map(x => ({name: x.name, value: x.value}))}, 'Activity state', 'state') : <p class="uj-empty">Select an execution or activity to inspect its state.</p>;
   }

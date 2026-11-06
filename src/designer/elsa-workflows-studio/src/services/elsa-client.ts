@@ -246,7 +246,7 @@ export const createElsaClient = async function (serverUrl: string): Promise<Elsa
         return response.data;
       },
       getStorageView: async id => {
-        const response = await httpClient.get(`v1/workflow-instances/${id}/storage`);
+        const response = await httpClient.get(`api/dashboard/workflow-inspection/${id}`);
         return response.data;
       },
       getStoragePayload: async (id, payloadId) => {
