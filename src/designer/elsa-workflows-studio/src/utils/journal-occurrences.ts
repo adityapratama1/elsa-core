@@ -129,3 +129,15 @@ export function journalFaultMessage(record: any): string {
   }
   return message || 'Activity fault recorded.';
 }
+
+// Describe only persisted evidence; Executed does not imply business success.
+export function journalResult(occurrence: JournalOccurrence) {
+  if (occurrence.outcome === 'Faulted') return {label:'Faulted', tone:'faulted', attention:true};
+  const outcomes = journalOutcomes(occurrence);
+  const failed = outcomes.some(x => /^(failed|unexpected error|error|unsupported status code)$/i.test(x));
+  const unsuccessful = occurrence.records.some(r => r.data?.Success === false || r.data?.success === false);
+  if (failed || unsuccessful) return {label:'Failure recorded', tone:'faulted', attention:true};
+  if (occurrence.outcome === 'Awaiting result') return {label:'Awaiting result', tone:'waiting', attention:true};
+  if (occurrence.uncertain) return {label:'Evidence incomplete', tone:'waiting', attention:true};
+  return {label:outcomes.length ? 'Outcomes recorded' : 'Execution recorded', tone:'neutral', attention:false};
+}

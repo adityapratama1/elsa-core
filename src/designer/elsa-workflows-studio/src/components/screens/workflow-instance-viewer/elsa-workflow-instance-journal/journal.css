@@ -71,3 +71,15 @@
 .unifi-journal .uj-variable-chevron {grid-column:3;grid-row:1/3;font-size:15px;color:#94a3b8}
 .unifi-journal .uj-variables .uj-badge {font-size:10px;padding:1px 6px}
 .unifi-journal .uj-variables .uj-details {padding:8px 10px}
+
+.unifi-journal .uj-inspection {padding:20px;max-width:100%}
+.unifi-journal .uj-inspection-json {max-height:55vh;min-height:140px}
+.unifi-journal .uj-row {padding:11px 13px;gap:7px}
+.unifi-journal .uj-row-title {align-items:flex-start}
+.unifi-journal .uj-details {border-top:1px solid #dbe6f4;background:#fbfcff;padding:14px}
+.unifi-journal .uj-structured {border-radius:7px;padding:12px}
+.unifi-journal .uj-button {min-height:30px;height:auto}
+.unifi-journal .uj-inspection input {height:34px}
+
+.unifi-journal .uj-attention{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff8e9;border:1px solid #f0deb3;border-radius:8px;padding:12px;margin:12px 0;color:#78561b;font-size:12px;line-height:1.6}
+.unifi-journal .uj-attention .uj-button{flex-shrink:0}

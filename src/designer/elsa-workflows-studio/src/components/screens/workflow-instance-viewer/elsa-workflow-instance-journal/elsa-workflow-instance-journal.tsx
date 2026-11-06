@@ -2,7 +2,7 @@ import {Component, Event, EventEmitter, h, Host, Method, Prop, State, Watch} fro
 import moment from 'moment';
 import {ActivityDescriptor, PagedList, WorkflowBlueprint, WorkflowExecutionLogRecord, WorkflowInstance, WorkflowModel} from '../../../../models';
 import {createElsaClient} from '../../../../services/elsa-client';
-import {JournalOccurrence, journalDuration, journalOccurrences, journalOutcomes, journalActivityOutput, journalValueShape, journalFaultMessage} from '../../../../utils/journal-occurrences';
+import {JournalOccurrence, journalDuration, journalOccurrences, journalOutcomes, journalActivityOutput, journalValueShape, journalFaultMessage, journalResult} from '../../../../utils/journal-occurrences';
 import {dashboardData} from '../../../../utils/dashboard-data';
 
 interface ExternalPayloadDescriptor {
@@ -31,6 +31,32 @@ export class ElsaWorkflowInstanceJournal {
   @State() payloadError?: string;
   @State() expandedPayloadPaths: Array<string> = ['$'];
   payloadDialog: HTMLElsaModalDialogElement;
+  @State() inspectionText = '';
+  @State() inspectionTitle = '';
+  @State() inspectionSearch = '';
+  inspectionDialog: HTMLElsaModalDialogElement;
+
+  private inspectValue(value: any, title: string) {
+    this.inspectionTitle = title;
+    this.inspectionSearch = '';
+    this.inspectionText = JSON.stringify(dashboardData(value, '', 0, {remaining:2000}, new Set<any>(), 200000), null, 2) || 'null';
+    this.inspectionDialog.show(true);
+  }
+
+  private renderInspectionDialog() {
+    const query = this.inspectionSearch.trim().toLowerCase();
+    const lines = this.inspectionText.split('\n').filter(line => !query || line.toLowerCase().includes(query));
+    return <elsa-modal-dialog dialogWidth="90vw" ref={el => this.inspectionDialog = el}>
+      <div slot="content" class="unifi-journal uj-inspection">
+        <header class="uj-heading"><div><h2>{this.inspectionTitle}</h2><p>Sanitized inspection · Sensitive values remain hidden.</p></div><button class="uj-button" onClick={() => this.inspectionDialog.show(false)}>Close</button></header>
+        <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => this.inspectionSearch = (e.target as HTMLInputElement).value}/>
+        <p class="uj-note" role="status">{query ? `${lines.length} matching lines. ` : ''}Display capped at 200,000 characters; up to 2,000 entries. Copy includes sanitized content and limit markers.</p>
+        <pre class="uj-json uj-inspection-json" tabIndex={0}>{lines.length ? lines.slice(0,5000).join('\n').slice(0,200000) : 'No matching fields or values.'}</pre>
+        <button class="uj-button" onClick={() => this.copyData(JSON.parse(this.inspectionText), 'inspection', true)}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy sanitized JSON'}</button>
+        {this.copyErrorKey === 'inspection' && <p role="alert" class="uj-warning">Clipboard unavailable. Select the text above to copy it manually.</p>}
+      </div>
+    </elsa-modal-dialog>;
+  }
   @State() loading = false;
   @State() loadError?: string;
   @State() filter = 'all';
@@ -49,6 +75,9 @@ export class ElsaWorkflowInstanceJournal {
 
   @Watch('workflowInstanceId')
   async workflowInstanceIdChangedHandler() {
+    this.inspectionText = '';
+    this.inspectionSearch = '';
+    if (this.inspectionDialog) await this.inspectionDialog.show(false);
     this.selectedRecordId = undefined;
     this.selectedActivityId = undefined;
     this.records = {items: [], totalCount: 0};
@@ -114,17 +143,18 @@ export class ElsaWorkflowInstanceJournal {
     return text.length > 20000 ? text.slice(0, 20000) + '\n… Display truncated at 20,000 characters.' : text;
   }
 
-  private async copyData(value: any, key: string) {
+  private async copyData(value: any, key: string, inspection = false) {
     this.copiedKey = undefined;
     this.copyErrorKey = undefined;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(dashboardData(value), null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(dashboardData(value, '', 0, {remaining:2000}, new Set<any>(), inspection ? 200000 : 20000), null, 2));
       this.copiedKey = key;
     } catch { this.copyErrorKey = key; }
   }
 
   private renderData(value: any, label: string, key: string) {
     return <div class="uj-data"><div class="uj-data-header"><strong>{label}</strong>
+      <button class="uj-button" disabled={value === undefined} onClick={() => this.inspectValue(value, label)}>Inspect content</button>
       <button class="uj-button" aria-label={`Copy ${label}`} disabled={value === undefined} onClick={() => this.copyData(value, key)}>{this.copiedKey === key ? 'Copied' : 'Copy JSON'}</button></div>
       {this.copyErrorKey === key && <p role="alert" class="uj-warning">Clipboard access failed. Allow clipboard access or select the text below to copy it manually.</p>}
       <pre class="uj-json">{this.raw(value)}</pre></div>;
@@ -150,15 +180,18 @@ export class ElsaWorkflowInstanceJournal {
   }
 
   private renderStructuredData(value: any, label: string, key: string) {
+    const original = value;
     value = dashboardData(value);
     return <section class="uj-structured" aria-label={label}><div class="uj-data-header"><strong>{label}</strong>
       <button class="uj-button" aria-label={`Copy ${label}`} disabled={value === undefined} onClick={() => this.copyData(value,key)}>{this.copiedKey === key ? 'Copied' : 'Copy JSON'}</button></div>
       {this.copyErrorKey === key && <p role="alert" class="uj-warning">Clipboard access failed. Open Raw JSON to copy the text manually.</p>}
-      {this.renderValue(value)}<details class="uj-raw"><summary>Raw JSON</summary>{this.renderData(value,'Raw JSON',`${key}:json`)}</details></section>;
+      <p class="uj-note">Preview only. Display limits do not change persisted values.</p>
+      <button class="uj-button" onClick={() => this.inspectValue(original, label)}>Inspect content</button>
+      {this.renderValue(value)}<details class="uj-raw"><summary>Raw JSON · sanitized preview</summary>{this.renderData(value,'Raw JSON',`${key}:json`)}</details></section>;
   }
 
   render() {
-    return <Host class="unifi-journal">{this.renderPayloadDialog()}<elsa-flyout-panel ref={el => this.flyoutPanel = el}>
+    return <Host class="unifi-journal">{this.renderPayloadDialog()}{this.renderInspectionDialog()}<elsa-flyout-panel ref={el => this.flyoutPanel = el}>
       <elsa-tab-header tab="general" slot="header">Overview</elsa-tab-header>
       <elsa-tab-content tab="general" slot="content">{this.renderOverview()}</elsa-tab-content>
       <elsa-tab-header tab="journal" slot="header">Journal</elsa-tab-header>
@@ -202,20 +235,22 @@ export class ElsaWorkflowInstanceJournal {
 
   private renderJournal() {
     const all = this.occurrences();
+    const attention = all.filter(x => journalResult(x).attention).length;
     const counts = {faulted: all.filter(x => x.outcome === 'Faulted').length, waiting: all.filter(x => x.outcome === 'Awaiting result').length};
-    const items = all.filter(x => (this.filter === 'all' || (this.filter === 'faulted' ? x.outcome === 'Faulted' : x.outcome === 'Awaiting result')) &&
+    const items = all.filter(x => (this.filter === 'all' || (this.filter === 'attention' ? journalResult(x).attention : this.filter === 'faulted' ? x.outcome === 'Faulted' : x.outcome === 'Awaiting result')) &&
       `${this.name(x)} ${x.activityId}`.toLowerCase().includes(this.search.toLowerCase()));
     if (this.latestFirst) items.reverse();
     const partial = this.records.items.length < this.records.totalCount;
     return <section class="uj-panel" aria-label="Workflow execution journal" aria-busy={this.loading ? 'true' : 'false'}>
       <header class="uj-heading"><div><h2>Execution journal</h2><p>One row per recorded execution. Times shown in your browser timezone ({moment().format('Z')}).</p></div>
         <button class="uj-button" disabled={this.loading} onClick={() => this.loadRecords()}>Refresh</button></header>
+      {!!attention && <div class="uj-attention"><span><strong>{attention} execution{attention === 1 ? '' : 's'} need review</strong><br/>Failures or incomplete evidence in the loaded history.</span><button class="uj-button" onClick={() => {this.filter = 'attention'; this.search = '';}}>Review issues</button></div>}
       <div class="uj-stats"><div><strong>{all.length}</strong><span>Executions</span></div><div><strong>{counts.faulted}</strong><span>Faulted</span></div>
         <div><strong>{counts.waiting}</strong><span>Awaiting result</span></div></div>
-      <p class="uj-note">“Result handled” is the Process Engine's Executed/Resumed event, not proof of business success. A fault takes precedence within the same recorded execution.</p>
+      <p class="uj-note">A workflow can complete after handling an activity failure. Read the recorded outcomes below. Awaiting result is missing evidence, not a live worker heartbeat.</p>
       <div class="uj-tools"><input aria-label="Find an activity" placeholder="Find activity or ID" value={this.search} onInput={e => this.search = (e.target as HTMLInputElement).value}/>
         <select aria-label="Filter journal" onChange={e => this.filter = (e.target as HTMLSelectElement).value}>
-          <option value="all" selected={this.filter === 'all'}>All executions</option><option value="faulted" selected={this.filter === 'faulted'}>Faulted</option><option value="waiting" selected={this.filter === 'waiting'}>Awaiting result</option></select>
+          <option value="all" selected={this.filter === 'all'}>All executions</option><option value="attention" selected={this.filter === 'attention'}>Needs attention</option><option value="faulted" selected={this.filter === 'faulted'}>Faulted</option><option value="waiting" selected={this.filter === 'waiting'}>Awaiting result</option></select>
         <button class="uj-button" onClick={() => this.latestFirst = !this.latestFirst}>{this.latestFirst ? 'Latest first' : 'Oldest first'}</button></div>
       {this.loadError && <p role="alert" class="uj-warning">{this.loadError}</p>}
       {partial && <p class="uj-warning">Partial history: {this.records.items.length} of {this.records.totalCount} events loaded. Pairing and durations are not confirmed until the complete history is loaded.</p>}
@@ -231,18 +266,20 @@ export class ElsaWorkflowInstanceJournal {
     const open = x.records.some(r => r.id === this.selectedRecordId);
     const fault = x.records.find(r => r.eventName === 'Faulted');
     const exception = fault?.data?.Exception || fault?.data?.exception || fault?.data;
-    const status = x.outcome === 'Faulted' ? 'uj-faulted' : x.outcome === 'Awaiting result' ? 'uj-waiting' : 'uj-neutral';
+    const diagnostic = fault ? journalFaultMessage(fault) : x.records.slice().reverse().flatMap(r => Object.entries(r.data || {}).filter(([key,value]) => /(?:^|\.)(?:error|filtererror)$/i.test(key) && typeof value === 'string').map(([,value]) => value as string))[0];
+    const result = journalResult(x);
+    const status = `uj-${result.tone}`;
     const outcomes = journalOutcomes(x);
     const descriptor = this.activityDescriptors.find(d => d.type === x.representative.activityType);
     const output = journalActivityOutput(x, this.workflowInstance, descriptor);
     return <li key={x.id} class={`uj-card ${open ? 'uj-selected' : ''}`}>
       <button class="uj-row" aria-expanded={open ? 'true' : 'false'} onClick={() => open ? this.selectRecord(undefined) : this.selectRecord(x.representative)}>
-        <span class="uj-row-title"><strong>{this.name(x)}</strong><span class={`uj-badge ${status}`}>{x.outcome}</span></span>
+        <span class="uj-row-title"><strong>{this.name(x)}</strong><span class={`uj-badge ${status}`}>{result.label}</span></span>
         <span class="uj-meta">Execution {x.number} · {this.date(x.startedAt ?? x.endedAt)} · {x.durationMs !== undefined ? journalDuration(x.durationMs) : 'Duration unavailable'}</span>
         {!!outcomes.length && <span class="uj-outcomes" aria-label="Recorded outcomes"><span class="uj-meta">Outcomes</span>{outcomes.map(outcome => <span class="uj-outcome">{outcome}</span>)}</span>}
         <span class="uj-meta">{x.records.length} raw event{x.records.length === 1 ? '' : 's'} · {open ? 'Hide details' : 'View details'}</span>
       </button>
-      {fault && <p class="uj-fault-message">{dashboardData(journalFaultMessage(fault))}</p>}
+      {diagnostic && <p class="uj-fault-message">{dashboardData(diagnostic).slice(0,600)}</p>}
       {open && <div class="uj-details">
         <dl class="uj-properties"><div><dt>Activity ID</dt><dd>{x.activityId} <elsa-copy-button value={x.activityId}/></dd></div>
           <div><dt>Started</dt><dd>{this.date(x.startedAt)}</dd></div><div><dt>Ended</dt><dd>{this.date(x.endedAt)}</dd></div>
@@ -250,13 +287,13 @@ export class ElsaWorkflowInstanceJournal {
         {x.uncertain && <p class="uj-warning">Start/end pairing is incomplete or ambiguous. No duration is inferred from adjacent events.</p>}
         {x.outcome === 'Awaiting result' && <p class="uj-note">No terminal event is persisted for this execution. This alone does not prove that a worker is still active.</p>}
         {x.records.filter(r => ['Executed','Resumed'].includes(r.eventName) && r.data != null).map(r => <div class="uj-event-data">
-          <p class="uj-meta">{r.eventName} · {this.date(r.timestamp)} · Result handled</p>
+          <p class="uj-meta">{r.eventName} · {this.date(r.timestamp)} · Event recorded</p>
           {this.renderStructuredData(r.data, `${r.eventName} data`, `data:${r.id}`)}</div>)}
         {output && <details class="uj-raw" open><summary>Activity Output</summary>
           <p class="uj-note">{output.source === 'execution' ? 'Output recorded in this execution.' : 'Latest persisted activity output/state. It may belong to a later execution; this is not a historical output snapshot.'}</p>
           {this.renderStructuredData(output.value, 'Activity Output', `output:${x.id}`)}</details>}
         {exception && <details class="uj-raw"><summary>Exception details</summary>{this.renderData(exception, 'Exception details', `exception:${x.id}`)}</details>}
-        <details class="uj-raw uj-raw-events"><summary>Raw Process Engine events · {x.records.length}</summary><p class="uj-note">Original names and timestamps are preserved. Event spacing is not activity duration.</p>
+        <details class="uj-raw uj-raw-events"><summary>Raw Process Engine events · {x.records.length}</summary><p class="uj-note">Technical evidence. Original event names and timestamps are preserved. Event spacing is not activity duration.</p>
         {x.records.map(r => <details class="uj-raw" key={r.id}><summary><span>{r.eventName}</span><time>{this.date(r.timestamp)}</time></summary>
           {this.renderData({id: r.id, rawEventName: r.eventName, timestamp: r.timestamp, message: r.message, data: r.data}, 'Raw event data', `raw:${r.id}`)}</details>)}
         </details>

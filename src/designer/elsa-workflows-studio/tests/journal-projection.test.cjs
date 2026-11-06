@@ -102,3 +102,12 @@ test('fault summary tolerates cyclic evidence',()=>{
  const data={Message:'Known failure'};data.InnerException=data;
  assert.equal(sandbox.exports.journalFaultMessage({data}),'Known failure');
 });
+
+test('investigation status distinguishes handled failure, faults and recorded execution',()=>{
+ const result=sandbox.exports.journalResult;
+ assert.equal(result({outcome:'Result handled',uncertain:false,records:[{data:{Outcomes:['Done','Unexpected Error'],Success:false}}]}).label,'Failure recorded');
+ assert.equal(result({outcome:'Faulted',records:[]}).label,'Faulted');
+ assert.equal(result({outcome:'Result handled',uncertain:false,records:[{data:{Outcomes:['Done']}}]}).label,'Outcomes recorded');
+ assert.equal(result({outcome:'Result handled',uncertain:false,records:[{data:{}}]}).label,'Execution recorded');
+ assert.equal(result({outcome:'Awaiting result',records:[]}).attention,true);
+});
