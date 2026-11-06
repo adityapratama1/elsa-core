@@ -100,3 +100,5 @@
 @media(max-width:540px){.unifi-journal .uj-actions{flex-wrap:wrap}.unifi-journal .uj-inspection{padding:16px}.unifi-journal .uj-inspection-heading{align-items:flex-start;flex-wrap:wrap}.unifi-journal .uj-inspection-meta{flex-wrap:wrap}.unifi-journal .uj-limits{max-width:100%;text-align:left}}
 
 .unifi-journal .uj-raw-actions{display:flex;justify-content:flex-end;margin:6px 0}
+
+.unifi-journal .uj-field-content{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}.unifi-journal .uj-field-summary{min-width:0;overflow-wrap:anywhere}.unifi-journal .uj-field-content>.uj-button{flex-shrink:0}

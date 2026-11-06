@@ -171,28 +171,43 @@ export class ElsaWorkflowInstanceJournal {
     const shape = journalValueShape(value);
     if (shape.kind === 'scalar') {
       const text = value === undefined ? 'Not recorded' : shape.preview;
-      return <span class="uj-value">{text.length > 400 ? text.slice(0,400) + '… (see Raw JSON for full value)' : text === '' ? '(empty string)' : text}</span>;
+      return <span class="uj-value">{text.length > 400 ? text.slice(0,400) + '… (use View content for the full value)' : text === '' ? '(empty string)' : text}</span>;
     }
-    if (depth >= 3) return <span class="uj-meta">{shape.kind === 'object' ? 'Object' : 'Array'} · {shape.count} {shape.kind === 'object' ? 'fields' : 'items'} (see Raw JSON)</span>;
+    if (depth >= 3) return <span class="uj-meta">{shape.kind === 'object' ? 'Object' : 'Array'} · {shape.count} {shape.kind === 'object' ? 'fields' : 'items'} (use View content)</span>;
     if (shape.kind === 'table') return <div class="uj-table-wrap"><table class="uj-table"><thead><tr>{shape.keys.map(key => <th>{key}</th>)}</tr></thead>
       <tbody>{value.slice(0,30).map(row => <tr>{shape.keys.map(key => <td>{this.renderValue(row[key],depth + 1)}</td>)}</tr>)}</tbody></table>
-      {value.length > 30 && <p class="uj-note">Showing 30 of {value.length} rows. Full data is available in Raw JSON and Copy JSON.</p>}</div>;
+      {value.length > 30 && <p class="uj-note">Showing 30 of {value.length} rows. Use View content to inspect all data.</p>}</div>;
     const entries = Array.isArray(value) ? value.slice(0,30).map((item,index) => [String(index + 1),item]) : Object.entries(value).slice(0,30);
     if (!entries.length) return <span class="uj-meta">{Array.isArray(value) ? 'Empty array' : 'Empty object'}</span>;
     return <div><dl class="uj-fields">{entries.map(([name,item]) => <div><dt>{name}</dt><dd>
       {name.toLowerCase() === 'outcomes' && Array.isArray(item) ? <span class="uj-outcomes">{item.map(outcome => <span class="uj-outcome">{String(outcome)}</span>)}</span> :
         item !== null && typeof item === 'object' ? <details class="uj-nested"><summary>{Array.isArray(item) ? `${item.length} items` : `${Object.keys(item).length} fields`}</summary>{this.renderValue(item,depth + 1)}</details> : this.renderValue(item,depth + 1)}
-      </dd></div>)}</dl>{shape.count > 30 && <p class="uj-note">Showing 30 of {shape.count} entries. Full data is available in Raw JSON and Copy JSON.</p>}</div>;
+      </dd></div>)}</dl>{shape.count > 30 && <p class="uj-note">Showing 30 of {shape.count} entries. Use View content to inspect all data.</p>}</div>;
   }
 
-  private renderStructuredData(value: any, label: string, key: string, inspectionSource?: any) {
+  private renderStructuredData(value: any, label: string, _key: string, inspectionSource?: any) {
     const original = inspectionSource === undefined ? value : inspectionSource;
-    value = dashboardData(value);
-    return <section class="uj-structured" aria-label={label}><div class="uj-data-header"><strong>{label}</strong><div class="uj-actions">
-      <button class="uj-button" disabled={original === undefined} onClick={() => this.inspectValue(original, label)}>Inspect content</button>
-</div></div>
-      <p class="uj-note uj-preview-note">Preview · sensitive values hidden</p>
-      {this.renderValue(value)}<details class="uj-raw"><summary>Raw JSON preview</summary><div class="uj-raw-actions"><button class="uj-button" aria-label={`Copy complete ${label} JSON`} onClick={() => this.copyData(original, `${key}:raw`, true)}>{this.copiedKey === `${key}:raw` ? 'Copied' : 'Copy JSON'}</button></div>{this.copyErrorKey === `${key}:raw` && <p role="alert" class="uj-warning">Clipboard unavailable. Use Inspect content to select and copy the text.</p>}<pre class="uj-json">{this.raw(value)}</pre></details></section>;
+    const entries = original !== null && typeof original === 'object' && !Array.isArray(original)
+      ? Object.entries(original) : [['Value', original]];
+    return <section class="uj-structured" aria-label={label}>
+      <div class="uj-data-header"><strong>{label}</strong></div>
+      <p class="uj-note uj-preview-note">Select a field to view its content. Sensitive values are hidden.</p>
+      <dl class="uj-fields">{entries.map(([name, item]) => {
+        const safe = dashboardData({[name]: item})[name];
+        const complex = item !== null && typeof item === 'object';
+        const large = typeof item === 'string' && item.length > 400;
+        return <div><dt>{name}</dt><dd class="uj-field-content">
+          <div class="uj-field-summary">{complex
+            ? name.toLowerCase() === 'outcomes' && Array.isArray(safe)
+              ? <span class="uj-outcomes">{safe.map(outcome => <span class="uj-outcome">{String(outcome)}</span>)}</span>
+              : <span class="uj-meta">{Array.isArray(item) ? `${item.length.toLocaleString()} items` : 'Object'}</span>
+            : large ? <span class="uj-meta">Text · {item.length.toLocaleString()} characters</span> : this.renderValue(safe)}</div>
+          <button class="uj-button" disabled={item === undefined} aria-label={`View ${name} content`}
+            onClick={() => this.inspectValue({[name]: item}, name)}>View content</button>
+        </dd></div>;
+      })}</dl>
+      {!entries.length && <p class="uj-note">No recorded fields.</p>}
+    </section>;
   }
 
   render() {
