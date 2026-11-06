@@ -45,6 +45,12 @@ export class ElsaWorkflowInstanceJournal {
   @State() inspectionOffset = 0;
   private inspectionWorker?: Worker;
   private inspectionReference?: string;
+  private inspectionOperation?: {id:string;reveal:boolean;action:string};
+  private newInspectionOperationId() {
+    const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+    const hex=Array.from(bytes,x=>x.toString(16).padStart(2,'0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
   private inspectionAbort?: AbortController;
   private inspectionGeneration = 0;
 
@@ -56,13 +62,15 @@ export class ElsaWorkflowInstanceJournal {
     this.inspectionText = '';
     this.inspectionRevealed = false;
     this.inspectionBusy = false;
-    this.inspectionReference = undefined;
+    this.inspectionReference = undefined;this.inspectionOperation=undefined;
     this.inspectionError = undefined;
   }
 
-  private async fetchInspection(reveal: boolean, action = 'view') {
+  private async fetchInspection(reveal: boolean, action = 'view', retry = false) {
     const reference = this.inspectionReference;
     if (!reference) return;
+    const operation=retry&&this.inspectionOperation ? this.inspectionOperation : {id:this.newInspectionOperationId(),reveal,action};
+    this.inspectionOperation=operation;reveal=operation.reveal;action=operation.action;
     this.inspectionAbort?.abort();
     const abort = new AbortController(); this.inspectionAbort = abort;
     const generation = ++this.inspectionGeneration;
@@ -85,7 +93,7 @@ export class ElsaWorkflowInstanceJournal {
           this.inspectionRevealed=reveal;resolve();
         };
         worker.postMessage({id:generation,command:'load',url:new URL('/api/dashboard/workflow-inspection/content',this.serverUrl).href,
-          csrf:(this.workflowInstance as any)?.inspectionCsrf||'',reference,reveal,action});
+          csrf:(this.workflowInstance as any)?.inspectionCsrf||'',reference,reveal,action,operationId:operation.id});
       });
     }catch(error){if(generation===this.inspectionGeneration)this.inspectionError=error.message;}
     finally{if(generation===this.inspectionGeneration)this.inspectionBusy=false;}
@@ -104,7 +112,7 @@ export class ElsaWorkflowInstanceJournal {
     const form = document.createElement('form'); form.method='POST';
     form.action = new URL('/api/dashboard/workflow-inspection/download', this.serverUrl).href;
     const frame=document.createElement('iframe');const generation=this.inspectionGeneration;frame.onload=()=>{if(generation!==this.inspectionGeneration)return;try{if(frame.contentDocument?.body?.textContent?.trim())this.inspectionError='Download could not be completed. Refresh the workflow and retry.';}catch{this.inspectionError='Download could not be completed. Check your access and retry.';}};frame.name='workflow-inspection-download';frame.style.display='none';document.body.appendChild(frame);form.target=frame.name;form.style.display='none';setTimeout(()=>frame.remove(),120000);
-    for (const [name,value] of Object.entries({Reference:this.inspectionReference,Reveal:String(this.inspectionRevealed),Action:'download',__RequestVerificationToken:(this.workflowInstance as any)?.inspectionCsrf || ''})) {
+    for (const [name,value] of Object.entries({Reference:this.inspectionReference,Reveal:String(this.inspectionRevealed),Action:'download',OperationId:this.newInspectionOperationId(),__RequestVerificationToken:(this.workflowInstance as any)?.inspectionCsrf || ''})) {
       const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.appendChild(input);
     }
     document.body.appendChild(form);form.submit();form.remove();
@@ -138,7 +146,7 @@ export class ElsaWorkflowInstanceJournal {
           {this.inspectionBusy && <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button>}
         </div>}
         {this.inspectionBusy && <p role="status">Loading content…</p>}
-        {this.inspectionError && <div role="alert"><p>{this.inspectionError}</p><button class="uj-button" onClick={() => this.fetchInspection(false)}>Retry</button></div>}
+        {this.inspectionError && <div role="alert"><p>{this.inspectionError}</p><button class="uj-button" onClick={() => this.fetchInspection(false,'view',true)}>Retry</button></div>}
         <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => {this.inspectionSearch = (e.target as HTMLInputElement).value; this.inspectionVisibleChars = 20000;if(this.inspectionReference)this.inspectionWindow();}}/>
         <p class="uj-note" role="status">{query && !this.inspectionReference ? `${lines.length} matching lines. ` : ''}Copy JSON follows Show / Hide and includes the full content, regardless of visible text.</p>
         <pre class="uj-json uj-inspection-json" tabIndex={0}>{content ? content.slice(0,this.inspectionVisibleChars) : 'No matching fields or values.'}</pre>

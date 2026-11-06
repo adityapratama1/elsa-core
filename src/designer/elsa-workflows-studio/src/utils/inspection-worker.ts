@@ -26,7 +26,7 @@ export function inspectionWorkerMain() {
         try {
           const response = await fetch(data.url, {method:'POST', credentials:'same-origin', signal:controller.signal,
             headers:{'Content-Type':'application/json','X-XSRF-TOKEN':data.csrf},
-            body:JSON.stringify({reference:data.reference,reveal:data.reveal,action:data.action})});
+            body:JSON.stringify({reference:data.reference,reveal:data.reveal,action:data.action,operationId:data.operationId})});
           if (!response.ok) throw new Error(response.status === 409 ? 'Recorded data changed or inspection expired. Refresh the workflow.' : 'Content could not be loaded. Check access, audit availability, or retry.');
           const raw = await response.text();text=format(raw);
           if (data.action === 'copy') {ctx.postMessage({id,text:raw,copy:true}); return;}
