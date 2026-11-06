@@ -42,7 +42,9 @@ test('sensitive variable preview, expanded value, raw JSON and clipboard are red
  view.expandedVariable='ApiKey';assert.ok(!text(view.renderVariables()).includes('private-api-value'));
  view.expandedVariable='Response';const tree=view.renderVariables();
  assert.ok(!text(tree).includes('private-token-value'));
- const copy=flatten(tree).find(x=>x.tag==='button'&&x.props['aria-label']==='Copy Response preview');
+ view.inspectionDialog={show:()=>{}};
+ const inspect=flatten(tree).find(x=>x.tag==='button'&&x.children?.includes('Inspect content'));inspect.props.onClick();
+ const copy=flatten(view.renderInspectionDialog()).find(x=>x.tag==='button'&&x.props['aria-label']==='Copy sanitized inspected JSON');
  let copied;sandbox.navigator.clipboard.writeText=async value=>copied=value;
  await copy.props.onClick();assert.ok(!copied.includes('private-token-value'));assert.ok(copied.includes('42'));
  assert.equal(JSON.stringify(data),before);
