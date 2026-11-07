@@ -23,6 +23,7 @@ export class ElsaWorkflowInstanceJournal {
   @Prop() workflowBlueprint: WorkflowBlueprint;
   @Prop() workflowModel: WorkflowModel;
   @Event() recordSelected: EventEmitter<WorkflowExecutionLogRecord>;
+  @Event() journalUpdated: EventEmitter<JournalOccurrence[]>;
   @State() records: PagedList<WorkflowExecutionLogRecord> = {items: [], totalCount: 0};
   @State() selectedRecordId?: string;
   @State() selectedActivityId?: string;
@@ -40,9 +41,13 @@ export class ElsaWorkflowInstanceJournal {
 
   @State() inspectionBusy = false;
   @State() inspectionRevealed = false;
+  @State() inspectionWrap = true;
+  @State() inspectionMatchCount = 0;
   @State() inspectionError?: string;
   @State() inspectionTotal = 0;
   @State() inspectionOffset = 0;
+  private searchDebounceTimer?: any;
+  private copyResetTimer?: any;
   private inspectionWorker?: Worker;
   private inspectionReference?: string;
   private inspectionOperation?: {id:string;reveal:boolean;action:string};
@@ -88,8 +93,8 @@ export class ElsaWorkflowInstanceJournal {
           clearTimeout(timer);
           if(generation!==this.inspectionGeneration){resolve();return;}
           if(data.error){reject(new Error(data.error));return;}
-          if(data.copy){try{await navigator.clipboard.writeText(data.text);this.copiedKey='inspection';}catch{this.copyErrorKey='inspection';}worker.postMessage({id:generation,command:'window',offset:0,query:''});}
-          else{this.inspectionText=data.text;this.inspectionTotal=data.total;this.inspectionOffset=data.offset;}
+          if(data.copy){try{await this.writeClipboardText(data.text);this.setCopied('inspection');}catch{this.copyErrorKey='inspection';}worker.postMessage({id:generation,command:'window',offset:0,query:''});}
+          else{this.inspectionText=data.text;this.inspectionTotal=data.total;this.inspectionOffset=data.offset;this.inspectionMatchCount=data.matchCount||0;}
           this.inspectionRevealed=reveal;resolve();
         };
         worker.postMessage({id:generation,command:'load',url:new URL('/api/dashboard/workflow-inspection/content',this.serverUrl).href,
@@ -97,6 +102,42 @@ export class ElsaWorkflowInstanceJournal {
       });
     }catch(error){if(generation===this.inspectionGeneration)this.inspectionError=error.message;}
     finally{if(generation===this.inspectionGeneration)this.inspectionBusy=false;}
+  }
+
+  private setCopied(key: string) {
+    this.copiedKey = key;
+    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+      window.clearTimeout(this.copyResetTimer);
+      this.copyResetTimer = window.setTimeout(() => {
+        if (this.copiedKey === key) this.copiedKey = undefined;
+      }, 2000);
+    }
+  }
+
+  private async writeClipboardText(text: string) {
+    let copied = false;
+    let firstError: any;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch (err) {
+        firstError = err;
+      }
+    }
+    if (!copied && typeof document !== 'undefined' && typeof document.createElement === 'function' && document.body) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', 'true');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      const ok = typeof document.execCommand === 'function' && document.execCommand('copy');
+      document.body.removeChild(area);
+      if (ok) copied = true;
+    }
+    if (!copied) throw firstError || new Error('Clipboard unavailable');
   }
 
   private inspectionWindow(offset = 0) {
@@ -112,7 +153,7 @@ export class ElsaWorkflowInstanceJournal {
     const form = document.createElement('form'); form.method='POST';
     form.action = new URL('/api/dashboard/workflow-inspection/download', this.serverUrl).href;
     const frame=document.createElement('iframe');const generation=this.inspectionGeneration;frame.onload=()=>{if(generation!==this.inspectionGeneration)return;try{if(frame.contentDocument?.body?.textContent?.trim())this.inspectionError='Download could not be completed. Refresh the workflow and retry.';}catch{this.inspectionError='Download could not be completed. Check your access and retry.';}};frame.name='workflow-inspection-download';frame.style.display='none';document.body.appendChild(frame);form.target=frame.name;form.style.display='none';setTimeout(()=>frame.remove(),120000);
-    for (const [name,value] of Object.entries({Reference:this.inspectionReference,Reveal:String(this.inspectionRevealed),Action:'download',OperationId:this.newInspectionOperationId(),__RequestVerificationToken:(this.workflowInstance as any)?.inspectionCsrf || ''})) {
+    for (const [name,value] of Object.entries({Reference:this.inspectionReference,Reveal:String(this.inspectionRevealed),Action:'download',OperationId:this.newInspectionOperationId(),FieldName:this.inspectionTitle||'',__RequestVerificationToken:(this.workflowInstance as any)?.inspectionCsrf || ''})) {
       const input=document.createElement('input');input.type='hidden';input.name=name;input.value=value;form.appendChild(input);
     }
     document.body.appendChild(form);form.submit();form.remove();
@@ -126,7 +167,13 @@ export class ElsaWorkflowInstanceJournal {
     this.inspectionSearch = '';
     this.inspectionVisibleChars = 20000;
     const descriptor = Object.values(value || {}).map((x:any) => x?.$inspection).find(Boolean) as any;
-    if (descriptor) {this.inspectionReference=descriptor.reference;this.inspectionDialog.show(true);void this.fetchInspection(false);return;}
+    if (descriptor) {
+      this.inspectionReference=descriptor.reference;
+      this.inspectionMatchCount=0;
+      this.inspectionDialog.show(true);
+      void this.fetchInspection(false);
+      return;
+    }
     try { this.inspectionText = JSON.stringify(inspectionData(value), null, 2) || 'null'; }
     catch { this.inspectionText = JSON.stringify({inspectionError:'This value could not be serialized for inspection. No raw content was exposed.'}); }
     this.inspectionDialog.show(true);
@@ -136,20 +183,48 @@ export class ElsaWorkflowInstanceJournal {
     const query = this.inspectionSearch.trim().toLowerCase();
     const lines = this.inspectionReference ? [this.inspectionText] : this.inspectionText.split('\n').filter(line => !query || line.toLowerCase().includes(query));
     const content = lines.join('\n');
+    const matchCount = this.inspectionReference ? this.inspectionMatchCount : lines.length;
     return <elsa-modal-dialog dialogWidth="64rem" onHidden={() => this.clearInspection()} ref={el => this.inspectionDialog = el}>
       <div slot="content" class="unifi-journal uj-inspection">
-        <header class="uj-heading uj-inspection-heading"><div><h2>{this.inspectionTitle}</h2><p>{this.inspectionRevealed ? 'Original content is visible, including sensitive values.' : 'Sensitive values are hidden.'}</p></div>
-          <button class="uj-button" aria-label={this.inspectionReference ? this.inspectionRevealed ? 'Copy original JSON' : 'Copy masked JSON' : 'Copy sanitized inspected JSON'} disabled={this.inspectionBusy || (!this.inspectionReference && !this.inspectionText)} onClick={() => this.copyInspection()}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy JSON'}</button></header>
-        {this.inspectionReference && <div class="uj-actions">
-          <button class="uj-button" disabled={this.inspectionBusy} onClick={() => {const reveal=!this.inspectionRevealed;void this.fetchInspection(reveal);}}>{this.inspectionRevealed ? 'Hide' : 'Show'}</button>
-          <button class="uj-button" disabled={this.inspectionBusy} onClick={() => this.downloadInspection()}>Download JSON</button>
-          {this.inspectionBusy && <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button>}
-        </div>}
+        <header class="uj-heading uj-inspection-heading"><div><h2>{this.inspectionTitle}</h2></div>
+          <div class="uj-actions">
+            {this.inspectionReference && <button class="uj-button" disabled={this.inspectionBusy} onClick={() => this.downloadInspection()}>Download JSON</button>}
+            <button class={`uj-button ${this.copiedKey === 'inspection' ? 'uj-button-copied' : 'uj-button-primary'}`} aria-label={this.inspectionReference ? this.inspectionRevealed ? 'Copy original JSON' : 'Copy masked JSON' : 'Copy sanitized inspected JSON'} disabled={this.inspectionBusy || (!this.inspectionReference && !this.inspectionText)} onClick={() => this.copyInspection()}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy JSON'}</button>
+          </div></header>
+        <div class={`uj-security-bar ${this.inspectionRevealed ? 'uj-security-revealed' : 'uj-security-masked'}`}>
+          <div class="uj-security-info">
+            <strong class="uj-security-badge">{this.inspectionRevealed ? 'Sensitive values are visible' : 'Sensitive values are hidden'}</strong>
+            <span>{this.inspectionRevealed ? 'Original unredacted content is shown and audited.' : 'Passwords, tokens, and secrets are masked as [REDACTED].'}</span>
+          </div>
+          {this.inspectionReference && <div class="uj-actions">
+            <button class={`uj-button ${this.inspectionRevealed ? 'uj-button-warning' : 'uj-button-reveal'}`} aria-label={this.inspectionRevealed ? 'Hide sensitive values' : 'Show sensitive values'} disabled={this.inspectionBusy} onClick={() => {const reveal=!this.inspectionRevealed;void this.fetchInspection(reveal);}}>{this.inspectionRevealed ? 'Hide sensitive values' : 'Show sensitive values'}</button>
+            {this.inspectionBusy && <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button>}
+          </div>}
+        </div>
         {this.inspectionBusy && <p role="status">Loading content…</p>}
         {this.inspectionError && <div role="alert"><p>{this.inspectionError}</p><button class="uj-button" onClick={() => this.fetchInspection(false,'view',true)}>Retry</button></div>}
-        <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => {this.inspectionSearch = (e.target as HTMLInputElement).value; this.inspectionVisibleChars = 20000;if(this.inspectionReference)this.inspectionWindow();}}/>
-        <p class="uj-note" role="status">{query && !this.inspectionReference ? `${lines.length} matching lines. ` : ''}Copy JSON follows Show / Hide and includes the full content, regardless of visible text.</p>
-        <pre class="uj-json uj-inspection-json" tabIndex={0}>{content ? content.slice(0,this.inspectionVisibleChars) : 'No matching fields or values.'}</pre>
+        <div class="uj-inspection-toolbar">
+          <div class="uj-search-wrap">
+            <input aria-label="Search inspected content" placeholder="Find a field or value" value={this.inspectionSearch} onInput={e => {
+              this.inspectionSearch = (e.target as HTMLInputElement).value;
+              this.inspectionVisibleChars = 20000;
+              this.inspectionOffset = 0;
+              if (this.inspectionReference) {
+                clearTimeout(this.searchDebounceTimer);
+                this.searchDebounceTimer = setTimeout(() => this.inspectionWindow(0), 150);
+              }
+            }}/>
+            {this.inspectionSearch && <span role="button" tabIndex={0} class="uj-search-clear" title="Clear search" aria-label="Clear search" onClick={() => {
+              this.inspectionSearch = '';
+              this.inspectionVisibleChars = 20000;
+              this.inspectionOffset = 0;
+              if (this.inspectionReference) this.inspectionWindow(0);
+            }}>×</span>}
+          </div>
+          <label class="uj-wrap-toggle"><input type="checkbox" checked={this.inspectionWrap} onChange={e => this.inspectionWrap = (e.target as HTMLInputElement).checked}/><span>Wrap lines</span></label>
+        </div>
+        <p class="uj-note" role="status">{query ? `${matchCount} matching lines. ` : ''}Copy JSON and Download JSON follow the current Sensitive Values mode ({this.inspectionRevealed ? 'Visible' : 'Hidden'}) and include the full content.</p>
+        <pre class={`uj-json uj-inspection-json ${this.inspectionWrap ? '' : 'uj-nowrap'}`} tabIndex={0}>{content ? content.slice(0,this.inspectionVisibleChars) : 'No matching fields or values.'}</pre>
         {this.inspectionReference && this.inspectionTotal>20000 && <div class="uj-actions"><button class="uj-button" disabled={this.inspectionOffset===0} onClick={()=>this.inspectionWindow(Math.max(0,this.inspectionOffset-20000))}>Previous</button><span class="uj-note">Characters {this.inspectionOffset+1}–{Math.min(this.inspectionOffset+20000,this.inspectionTotal)} of {this.inspectionTotal.toLocaleString()}</span><button class="uj-button" disabled={this.inspectionOffset+20000>=this.inspectionTotal} onClick={()=>this.inspectionWindow(this.inspectionOffset+20000)}>Next</button></div>}
         {!this.inspectionReference && content.length > this.inspectionVisibleChars && <div class="uj-inspection-meta"><span class="uj-note">Showing {this.inspectionVisibleChars.toLocaleString()} of {content.length.toLocaleString()} characters</span><div class="uj-actions"><button class="uj-button" onClick={() => this.inspectionVisibleChars += 100000}>Show more</button><button class="uj-button" onClick={() => this.inspectionVisibleChars = content.length}>Show all</button></div></div>}
         {this.copyErrorKey === 'inspection' && <p role="alert" class="uj-warning">Clipboard unavailable. Download JSON to save the full content, or select the visible text.</p>}
@@ -188,6 +263,7 @@ export class ElsaWorkflowInstanceJournal {
     this.variableSearch = '';
     this.variableLimit = 30;
     this.expandedVariable = undefined;
+    this.journalUpdated?.emit([]);
     await this.loadRecords();
   }
 
@@ -209,6 +285,7 @@ export class ElsaWorkflowInstanceJournal {
       const unique = new Map(items.map(x => [x.id, x]));
       this.records = {...response, items: Array.from(unique.values()).slice(0, this.maxRecords)};
       this.page = page;
+      this.journalUpdated?.emit(this.occurrences());
     } catch {
       if (version === this.requestVersion) this.loadError = 'Journal could not be loaded. Existing workflow processing is unaffected. Retry to read it again.';
     } finally { if (version === this.requestVersion) this.loading = false; }
@@ -216,9 +293,31 @@ export class ElsaWorkflowInstanceJournal {
 
   @Method()
   async selectActivityRecord(activityId?: string) {
+    if (!activityId) {
+      this.selectRecord(undefined);
+      return;
+    }
     const occurrence = this.occurrences().filter(x => x.activityId === activityId).slice(-1)[0];
+    if (occurrence) {
+      const query = this.search.trim().toLowerCase();
+      const isFilteredOut = (this.filter === 'attention' && !journalResult(occurrence).attention) ||
+        (this.filter === 'faulted' && occurrence.outcome !== 'Faulted') ||
+        (this.filter === 'waiting' && occurrence.outcome !== 'Awaiting result') ||
+        (query && !`${this.name(occurrence)} ${occurrence.activityId}`.toLowerCase().includes(query));
+      if (isFilteredOut) {
+        this.filter = 'all';
+        this.search = '';
+      }
+    }
     this.selectRecord(occurrence?.representative);
     if (this.flyoutPanel) await this.flyoutPanel.selectTab('journal', true);
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        const root = this.flyoutPanel || (this as any).el || (typeof document !== 'undefined' ? document : undefined);
+        const selectedCard = root?.querySelector?.('.uj-card.uj-selected');
+        if (selectedCard) (selectedCard as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      }, 80);
+    }
   }
 
   private selectRecord(record?: WorkflowExecutionLogRecord) {
@@ -226,7 +325,7 @@ export class ElsaWorkflowInstanceJournal {
     const activity = this.workflowBlueprint?.activities?.find(x => x.id === record?.activityId);
     this.selectedRecordId = record?.id;
     this.selectedActivityId = activity ? activity.parentId && activity.parentId !== this.workflowBlueprint.id ? activity.parentId : activity.id : record?.activityId;
-    if (record) this.recordSelected.emit(record);
+    if (record) this.recordSelected?.emit(record);
   }
 
   private occurrences() { return journalOccurrences(this.records.items, this.records.items.length >= this.records.totalCount); }
@@ -247,8 +346,8 @@ export class ElsaWorkflowInstanceJournal {
     this.copiedKey = undefined;
     this.copyErrorKey = undefined;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(inspectionData(value), null, 2));
-      this.copiedKey = key;
+      await this.writeClipboardText(JSON.stringify(inspectionData(value), null, 2));
+      this.setCopied(key);
     } catch { this.copyErrorKey = key; }
   }
 
@@ -279,12 +378,12 @@ export class ElsaWorkflowInstanceJournal {
       </dd></div>)}</dl>{shape.count > 30 && <p class="uj-note">Showing 30 of {shape.count} entries. Use View content to inspect all data.</p>}</div>;
   }
 
-  private renderStructuredData(value: any, label: string, _key: string, inspectionSource?: any) {
+  private renderStructuredData(value: any, label: string, _key: string, inspectionSource?: any, hideHeader = false) {
     const original = inspectionSource === undefined ? value : inspectionSource;
     const entries = original !== null && typeof original === 'object' && !Array.isArray(original)
       ? Object.entries(original) : [['Value', original]];
     return <section class="uj-structured" aria-label={label}>
-      <div class="uj-data-header"><strong>{label}</strong></div>
+      {!hideHeader && <div class="uj-data-header"><strong>{label}</strong></div>}
       <p class="uj-note uj-preview-note">Sensitive values are hidden. Open large values to view their content.</p>
       <dl class="uj-fields">{entries.map(([name, item]) => {
         const safe = dashboardData({[name]: item})[name];
@@ -340,7 +439,7 @@ export class ElsaWorkflowInstanceJournal {
         return <article class={`uj-card ${open ? 'uj-selected' : ''}`} key={name}>
           <button class="uj-variable-row" aria-expanded={open ? 'true' : 'false'} onClick={() => this.expandedVariable = open ? undefined : name}>
             <strong class="uj-variable-name" title={name}>{name}</strong><span class="uj-badge uj-neutral">{type}</span>
-            <span class="uj-variable-preview">{preview}</span><span class="uj-variable-chevron" aria-hidden="true">{open ? '⌃' : '⌄'}</span>
+            <span class="uj-variable-preview">{preview}</span><span class="uj-variable-chevron" aria-hidden="true">{open ? '▴' : '▾'}</span>
           </button>
           {open && <div class="uj-details">{external && <p class="uj-note">This is a payload reference, not its contents. No external data is fetched by this view.</p>}
             {this.renderStructuredData(value, external ? 'Payload reference' : name, `variable:${name}`, {[name]:original})}</div>}
@@ -350,22 +449,47 @@ export class ElsaWorkflowInstanceJournal {
     </section>;
   }
 
+  private onOccurrenceKeyDown(e: KeyboardEvent, currentId: string, list: JournalOccurrence[]) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const idx = list.findIndex(o => o.id === currentId);
+    if (idx < 0) return;
+    const nextIdx = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+    if (nextIdx < 0 || nextIdx >= list.length) return;
+    e.preventDefault?.();
+    this.selectRecord(list[nextIdx].representative);
+  }
+
   private renderJournal() {
     const all = this.occurrences();
     const attention = all.filter(x => journalResult(x).attention).length;
     const counts = {faulted: all.filter(x => x.outcome === 'Faulted').length, waiting: all.filter(x => x.outcome === 'Awaiting result').length};
-    const items = all.filter(x => (this.filter === 'all' || (this.filter === 'attention' ? journalResult(x).attention : this.filter === 'faulted' ? x.outcome === 'Faulted' : x.outcome === 'Awaiting result')) &&
-      `${this.name(x)} ${x.activityId}`.toLowerCase().includes(this.search.toLowerCase()));
+    const maxDuration = Math.max(0, ...all.map(x => x.durationMs ?? 0));
+    const query = this.search.trim().toLowerCase();
+    const items = all.filter(x => {
+      if (this.filter === 'attention' && !journalResult(x).attention) return false;
+      if (this.filter === 'faulted' && x.outcome !== 'Faulted') return false;
+      if (this.filter === 'waiting' && x.outcome !== 'Awaiting result') return false;
+      if (!query) return true;
+      const fault = x.records.find(r => r.eventName === 'Faulted');
+      const faultMsg = fault ? journalFaultMessage(fault) : '';
+      const diagMsg = x.records.slice().reverse().flatMap(r => Object.entries(r.data || {}).filter(([key,value]) => /(?:^|\.)(?:error|filtererror)$/i.test(key) && typeof value === 'string').map(([,value]) => value as string))[0] || '';
+      const outcomes = journalOutcomes(x).join(' ');
+      const searchTarget = `${this.name(x)} ${x.activityId} ${x.representative.activityType || ''} ${outcomes} ${faultMsg} ${diagMsg}`.toLowerCase();
+      return searchTarget.includes(query);
+    });
     if (this.latestFirst) items.reverse();
     const partial = this.records.items.length < this.records.totalCount;
     return <section class="uj-panel" aria-label="Workflow execution journal" aria-busy={this.loading ? 'true' : 'false'}>
       <header class="uj-heading"><div><h2>Execution journal</h2><p>One row per recorded execution. Times shown in your browser timezone ({moment().format('Z')}).</p></div>
         <button class="uj-button" disabled={this.loading} onClick={() => this.loadRecords()}>Refresh</button></header>
       {!!attention && <div class="uj-attention"><span><strong>{attention} execution{attention === 1 ? '' : 's'} need review</strong><br/>Failures or incomplete evidence in the loaded history.</span><button class="uj-button" onClick={() => {this.filter = 'attention'; this.search = '';}}>Review issues</button></div>}
-      <div class="uj-stats"><div><strong>{all.length}</strong><span>Executions</span></div><div><strong>{counts.faulted}</strong><span>Faulted</span></div>
-        <div><strong>{counts.waiting}</strong><span>Awaiting result</span></div></div>
+      <div class="uj-stats">
+        <div role="button" tabIndex={0} class={`uj-stat-card ${this.filter === 'all' ? 'uj-stat-active' : ''}`} onClick={() => this.filter = 'all'}><strong>{all.length}</strong><span>Executions</span></div>
+        <div role="button" tabIndex={0} class={`uj-stat-card ${counts.faulted > 0 ? 'uj-stat-danger' : ''} ${this.filter === 'faulted' ? 'uj-stat-active' : ''}`} onClick={() => this.filter = this.filter === 'faulted' ? 'all' : 'faulted'}><strong>{counts.faulted}</strong><span>Faulted</span></div>
+        <div role="button" tabIndex={0} class={`uj-stat-card ${counts.waiting > 0 ? 'uj-stat-info' : ''} ${this.filter === 'waiting' ? 'uj-stat-active' : ''}`} onClick={() => this.filter = this.filter === 'waiting' ? 'all' : 'waiting'}><strong>{counts.waiting}</strong><span>Awaiting result</span></div>
+      </div>
       <p class="uj-note">A workflow can complete after handling an activity failure. Read the recorded outcomes below. Awaiting result is missing evidence, not a live worker heartbeat.</p>
-      <div class="uj-tools"><input aria-label="Find an activity" placeholder="Find activity or ID" value={this.search} onInput={e => this.search = (e.target as HTMLInputElement).value}/>
+      <div class="uj-tools uj-sticky-tools"><input aria-label="Find an activity" placeholder="Find activity or ID" value={this.search} onInput={e => this.search = (e.target as HTMLInputElement).value}/>
         <select aria-label="Filter journal" onChange={e => this.filter = (e.target as HTMLSelectElement).value}>
           <option value="all" selected={this.filter === 'all'}>All executions</option><option value="attention" selected={this.filter === 'attention'}>Needs attention</option><option value="faulted" selected={this.filter === 'faulted'}>Faulted</option><option value="waiting" selected={this.filter === 'waiting'}>Awaiting result</option></select>
         <button class="uj-button" onClick={() => this.latestFirst = !this.latestFirst}>{this.latestFirst ? 'Latest first' : 'Oldest first'}</button></div>
@@ -373,13 +497,13 @@ export class ElsaWorkflowInstanceJournal {
       {partial && <p class="uj-warning">Partial history: {this.records.items.length} of {this.records.totalCount} events loaded. Pairing and durations are not confirmed until the complete history is loaded.</p>}
       {this.loading && <p role="status">Reading journal…</p>}
       {!this.loading && !this.loadError && !items.length && <p class="uj-empty">{all.length ? 'No executions match this filter.' : 'No persisted journal events yet. Missing events do not prove that no work ran.'}</p>}
-      <ol class="uj-list">{items.map(x => this.renderOccurrence(x))}</ol>
+      <ol class="uj-list">{items.map(x => this.renderOccurrence(x, all.findIndex(occ => occ.id === x.id) + 1, all.filter(occ => occ.activityId === x.activityId).length, x.durationMs !== undefined && x.durationMs >= 1000 && x.durationMs >= maxDuration * 0.6, items))}</ol>
       {partial && this.records.items.length < this.maxRecords && <button class="uj-button" disabled={this.loading} onClick={() => this.loadRecords(true)}>Load next {this.pageSize} events</button>}
       {partial && this.records.items.length >= this.maxRecords && <p class="uj-note">Display limit reached (1,000 events). Raw history remains available through the existing execution-log API.</p>}
     </section>;
   }
 
-  private renderOccurrence(x: JournalOccurrence) {
+  private renderOccurrence(x: JournalOccurrence, stepNumber = 1, sameActivityCount = 1, isSlow = false, visibleItems: JournalOccurrence[] = []) {
     const open = x.records.some(r => r.id === this.selectedRecordId);
     const fault = x.records.find(r => r.eventName === 'Faulted');
     const exception = fault?.data?.Exception || fault?.data?.exception || fault?.data;
@@ -389,10 +513,12 @@ export class ElsaWorkflowInstanceJournal {
     const outcomes = journalOutcomes(x);
     const descriptor = this.activityDescriptors.find(d => d.type === x.representative.activityType);
     const output = journalActivityOutput(x, this.workflowInstance, descriptor);
-    return <li key={x.id} class={`uj-card ${open ? 'uj-selected' : ''}`}>
-      <button class="uj-row" aria-expanded={open ? 'true' : 'false'} onClick={() => open ? this.selectRecord(undefined) : this.selectRecord(x.representative)}>
-        <span class="uj-row-title"><strong>{this.name(x)}</strong><span class={`uj-badge ${status}`}>{result.label}</span></span>
-        <span class="uj-meta">Execution {x.number} · {this.date(x.startedAt ?? x.endedAt)} · {x.durationMs !== undefined ? journalDuration(x.durationMs) : 'Duration unavailable'}</span>
+    const step = stepNumber || 1;
+    const sameCount = sameActivityCount || 1;
+    return <li key={x.id} class={`uj-card uj-card-${result.tone} ${open ? 'uj-selected' : ''}`}>
+      <button class="uj-row" aria-expanded={open ? 'true' : 'false'} onKeyDown={e => this.onOccurrenceKeyDown(e as any, x.id, visibleItems)} onClick={() => open ? this.selectRecord(undefined) : this.selectRecord(x.representative)}>
+        <span class="uj-row-title"><span class="uj-title-main"><span class="uj-step-pill">#{step}</span><strong>{this.name(x)}</strong></span><span class="uj-badges">{isSlow && <span class="uj-badge uj-slow" title="Slowest / bottleneck step">Slow · {journalDuration(x.durationMs)}</span>}<span class={`uj-badge ${status}`}>{result.label}</span></span></span>
+        <span class="uj-meta">Step {step}{sameCount > 1 ? ` (Run ${x.number} of ${sameCount})` : ` · Execution ${x.number}`} · {this.date(x.startedAt ?? x.endedAt)} · {x.durationMs !== undefined ? journalDuration(x.durationMs) : 'Duration unavailable'}</span>
         {!!outcomes.length && <span class="uj-outcomes" aria-label="Recorded outcomes"><span class="uj-meta">Outcomes</span>{outcomes.map(outcome => <span class="uj-outcome">{outcome}</span>)}</span>}
         <span class="uj-meta">{x.records.length} raw event{x.records.length === 1 ? '' : 's'} · {open ? 'Hide details' : 'View details'}</span>
       </button>
@@ -408,7 +534,7 @@ export class ElsaWorkflowInstanceJournal {
           {this.renderStructuredData(r.data, `${r.eventName} data`, `data:${r.id}`)}</div>)}
         {output && <details class="uj-raw" open><summary>Activity Output</summary>
           <p class="uj-note">{output.source === 'execution' ? 'Output recorded in this execution.' : 'Latest persisted activity output/state. It may belong to a later execution; this is not a historical output snapshot.'}</p>
-          {this.renderStructuredData(output.value, 'Activity Output', `output:${x.id}`)}</details>}
+          {this.renderStructuredData(output.value, 'Activity Output', `output:${x.id}`, undefined, true)}</details>}
         {exception && <details class="uj-raw"><summary>Exception details</summary>{this.renderData(exception, 'Exception details', `exception:${x.id}`)}</details>}
 
       </div>}
@@ -424,10 +550,26 @@ export class ElsaWorkflowInstanceJournal {
       <p class="uj-note">Persisted workflow status is not a live worker heartbeat. Open Journal for recorded execution evidence.</p></section>;
   }
 
+  private renderStateHeader() {
+    if (!this.selectedActivityId) return undefined;
+    const bpActivity = this.workflowBlueprint?.activities?.find(x => x.id === this.selectedActivityId);
+    const display = bpActivity?.displayName || bpActivity?.name || this.selectedActivityId;
+    const type = bpActivity?.type || 'Activity';
+    const latestOcc = this.occurrences().filter(x => x.activityId === this.selectedActivityId).slice(-1)[0];
+    const latestRes = latestOcc ? journalResult(latestOcc) : undefined;
+    return <header class="uj-state-context">
+      <div class="uj-state-title">
+        <div class="uj-title-main"><strong>{display}</strong><span class="uj-badge uj-neutral">{type}</span>{latestRes && <span class={`uj-badge uj-${latestRes.tone}`}>{latestRes.label}</span>}</div>
+        {latestOcc && <span role="button" tabIndex={0} class="uj-link-chip" onClick={() => this.selectActivityRecord(this.selectedActivityId)}>Jump to journal step →</span>}
+      </div>
+      <p class="uj-meta">Activity ID: <code>{this.selectedActivityId}</code></p>
+    </header>;
+  }
+
   private renderState() {
-    if ((this.workflowInstance as any)?.inspectionEnabled) {const state=this.workflowInstance?.activityData?.[this.selectedActivityId];return state ? this.renderStructuredData(state,'Latest activity state','state') : <p class="uj-empty">Select an activity to inspect its latest persisted state.</p>;}
+    if ((this.workflowInstance as any)?.inspectionEnabled) {const state=this.workflowInstance?.activityData?.[this.selectedActivityId];return state ? <div class="uj-panel">{this.renderStateHeader()}{this.renderStructuredData(state,'Latest activity state','state')}</div> : <p class="uj-empty">Select an activity to inspect its latest persisted state.</p>;}
     const activity = this.workflowModel?.activities?.find(x => x.activityId === this.selectedActivityId);
-    return activity ? this.renderData({...activity, properties: activity.properties?.map(x => ({name: x.name, value: x.value}))}, 'Activity state', 'state') : <p class="uj-empty">Select an execution or activity to inspect its state.</p>;
+    return activity ? <div class="uj-panel">{this.renderStateHeader()}{this.renderData({...activity, properties: activity.properties?.map(x => ({name: x.name, value: x.value}))}, 'Activity state', 'state')}</div> : <p class="uj-empty">Select an execution or activity to inspect its state.</p>;
   }
   getExternalPayload(value: any): ExternalPayloadDescriptor | undefined {
     const descriptor = value?.$externalPayload;

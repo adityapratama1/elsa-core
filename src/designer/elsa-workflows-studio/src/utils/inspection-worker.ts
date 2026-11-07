@@ -2,7 +2,9 @@
 export function inspectionWorkerMain() {
   const ctx: any = self;
   const format = (raw: string) => {
-    if (!['{','['].includes(raw.trimStart()[0])) return raw;
+    const trimmed = raw.trimStart();
+    if (!['{','['].includes(trimmed[0])) return raw;
+    if (trimmed.startsWith('{\n') || trimmed.startsWith('[\n')) return raw;
     const parts: string[] = []; let depth = 0;
     for (let i = 0; i < raw.length; i++) {
       const c = raw[i];
@@ -34,9 +36,16 @@ export function inspectionWorkerMain() {
       }
       if (command === 'load' || command === 'window') {
         const query = (data.query || '').trim().toLowerCase();
-        const content = query ? text.split('\n').filter(line => line.toLowerCase().includes(query)).join('\n') : text;
+        let content = text;
+        let matchCount = 0;
+        if (query) {
+          const lines = text.split('\n');
+          const matched = lines.filter(line => line.toLowerCase().includes(query));
+          matchCount = matched.length;
+          content = matched.join('\n');
+        }
         const offset = data.offset || 0;
-        ctx.postMessage({id,text:content.slice(offset,offset+20000),total:content.length,offset});
+        ctx.postMessage({id,text:content.slice(offset,offset+20000),total:content.length,offset,matchCount});
       }
     } catch(error) {ctx.postMessage({id,error:error.name === 'AbortError' ? 'Inspection cancelled or timed out.' : error.message});}
   };

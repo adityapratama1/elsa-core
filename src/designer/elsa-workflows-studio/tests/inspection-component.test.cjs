@@ -3,7 +3,8 @@ function load(file,requires={}){const box={exports:{},AbortController,setTimeout
 const data=load('src/utils/dashboard-data.ts').exports,projection=load('src/utils/journal-occurrences.ts').exports;
 const decorator=()=>()=>{},h=(tag,props,...children)=>({tag,props:props||{},children});
 let workerFactory;
-const box=load('src/components/screens/workflow-instance-viewer/elsa-workflow-instance-journal/elsa-workflow-instance-journal.tsx',{'@stencil/core':{Component:decorator,Event:decorator,Method:decorator,Prop:decorator,State:decorator,Watch:decorator,h},'../../../../utils/inspection-worker':{createInspectionWorker:()=>workerFactory()},'../../../../utils/dashboard-data':data,'../../../../utils/journal-occurrences':projection});
+const momentMock = Object.assign(() => ({ format: () => '+07:00', isValid: () => true }), { default: () => ({ format: () => '+07:00', isValid: () => true }) });
+const box=load('src/components/screens/workflow-instance-viewer/elsa-workflow-instance-journal/elsa-workflow-instance-journal.tsx',{'@stencil/core':{Component:decorator,Event:decorator,Method:decorator,Prop:decorator,State:decorator,Watch:decorator,h},'moment':momentMock,'../../../../utils/inspection-worker':{createInspectionWorker:()=>workerFactory()},'../../../../utils/dashboard-data':data,'../../../../utils/journal-occurrences':projection});
 function nodes(v){return v&&typeof v==='object'?[v,...(v.children||[]).flat(Infinity).flatMap(nodes)]:[]}
 test('content inspection uses original value while previews remain bounded',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();let opened=false;c.inspectionDialog={show:()=>opened=true};const value={ResponseContent:JSON.stringify({message:'x'.repeat(25000),password:'synthetic-secret'})};const before=JSON.stringify(value);const view=c.renderStructuredData(value,'Output','a');const button=nodes(view).find(x=>x.tag==='button'&&x.children.includes('View content'));assert(button);button.props.onClick();assert(opened);assert(c.inspectionText.includes('x'.repeat(25000)));assert(!c.inspectionText.includes('synthetic-secret'));assert.equal(JSON.stringify(value),before)});
 test('inspection search is case insensitive and uses only the native modal close',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();let closed=false;c.inspectionDialog={show:v=>closed=!v};c.inspectionText=JSON.stringify({grossAmount:17.95,other:1},null,2);c.inspectionSearch='GROSS';const view=c.renderInspectionDialog(),all=nodes(view);assert(all.find(x=>x.tag==='pre').children[0].includes('grossAmount'));assert(!all.find(x=>x.tag==='pre').children[0].includes('other'));assert.equal(all.filter(x=>x.tag==='button'&&x.children.includes('Close')).length,0);assert.equal(all.filter(x=>x.tag==='button').length,1)});
@@ -47,3 +48,81 @@ test('selecting an activity closes inspection instead of opening an empty modal'
 test('Copy remains available for a loaded lazy field when search has no matches',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();c.inspectionReference='signed';c.inspectionText='';c.inspectionSearch='missing';const copy=nodes(c.renderInspectionDialog()).find(x=>x.tag==='button'&&x.props['aria-label']==='Copy masked JSON');assert.equal(copy.props.disabled,false);});
 
 test('explicit retry reuses operation ID while each new Show uses a new ID',async()=>{const workers=[];workerFactory=()=>{const w={terminate(){},postMessage(data){this.request=data;}};workers.push(w);return w;};const c=new box.exports.ElsaWorkflowInstanceJournal();c.serverUrl='https://test.local';c.workflowInstance={inspectionCsrf:'csrf'};c.inspectionReference='signed';let pending=c.fetchInspection(true);const first=workers[0].request.operationId;await workers[0].onmessage({data:{error:'temporary'}});await pending;pending=c.fetchInspection(false,'view',true);assert.equal(workers[1].request.operationId,first);assert.equal(workers[1].request.reveal,true);await workers[1].onmessage({data:{text:'value',total:5,offset:0}});await pending;pending=c.fetchInspection(true);assert.notEqual(workers[2].request.operationId,first);await workers[2].onmessage({data:{text:'value',total:5,offset:0}});await pending;});
+
+test('journal occurrences render 1-based step numbering and never Step 0',()=>{
+  const c=new box.exports.ElsaWorkflowInstanceJournal();
+  c.date=()=>'Now';
+  c.records={items:[
+    {id:'r1',activityId:'act1',eventName:'Executing',timestamp:new Date(1000).toISOString()},
+    {id:'r2',activityId:'act1',eventName:'Executed',timestamp:new Date(2000).toISOString()},
+    {id:'r3',activityId:'act2',eventName:'Executing',timestamp:new Date(3000).toISOString()},
+    {id:'r4',activityId:'act2',eventName:'Executed',timestamp:new Date(4000).toISOString()}
+  ],totalCount:4};
+  const view=nodes(c.renderJournal());
+  const meta=view.filter(x=>x.tag==='span'&&x.props.class==='uj-meta').map(x=>x.children.flat(Infinity).join(''));
+  assert(meta.some(m=>m.includes('Step 1')));
+  assert(meta.some(m=>m.includes('Step 2')));
+  assert(!meta.some(m=>m.includes('Step 0')));
+});
+
+test('deferred generic fields with nested sensitive values render Show action in inspection modal',()=>{
+  const c=new box.exports.ElsaWorkflowInstanceJournal();
+  c.inspectionDialog={show:()=>{}};
+  c.inspectValue({ResponseContent:{$inspection:{reference:'signed-ref',sensitive:false}}},'ResponseContent');
+  assert.equal(c.inspectionReference,'signed-ref');
+  const dialog=nodes(c.renderInspectionDialog());
+  const showBtn=dialog.find(x=>x.tag==='button'&&x.children.includes('Show sensitive values'));
+  assert(showBtn,'Show sensitive values button must be present for deferred field');
+  c.clearInspection();
+});
+
+test('interactive KPI cards, keyboard navigation, slow bottleneck badge, state context header, and modal wrap/clear controls work ergonomically',async()=>{
+  const c=new box.exports.ElsaWorkflowInstanceJournal();
+  c.date=()=>'Now';
+  let selectedTab;
+  c.flyoutPanel={selectTab:async t=>{selectedTab=t;}};
+  c.workflowInstance={inspectionEnabled:true,activityData:{act2:{Url:'https://example.com'}}};
+  c.records={items:[
+    {id:'r1',activityId:'act1',activityType:'FastStep',eventName:'Executing',timestamp:new Date(1000).toISOString()},
+    {id:'r2',activityId:'act1',activityType:'FastStep',eventName:'Executed',timestamp:new Date(1200).toISOString()},
+    {id:'r3',activityId:'act2',activityType:'SlowFaultStep',eventName:'Executing',timestamp:new Date(2000).toISOString()},
+    {id:'r4',activityId:'act2',activityType:'SlowFaultStep',eventName:'Faulted',timestamp:new Date(5000).toISOString(),data:{Message:'Timeout'}}
+  ],totalCount:4};
+
+  let jView=nodes(c.renderJournal());
+  const slowBadge=jView.find(x=>x.tag==='span'&&typeof x.props.class==='string'&&x.props.class.includes('uj-slow'));
+  assert(slowBadge,'Slow bottleneck badge should render for 3000ms step');
+  const faultStat=jView.find(x=>x.tag==='div'&&typeof x.props.class==='string'&&x.props.class.includes('uj-stat-danger'));
+  assert(faultStat);
+  faultStat.props.onClick();
+  assert.equal(c.filter,'faulted');
+  faultStat.props.onClick();
+  assert.equal(c.filter,'all');
+
+  jView=nodes(c.renderJournal());
+  const rows=jView.filter(x=>x.tag==='button'&&x.props.class==='uj-row');
+  assert.equal(rows.length,2);
+  rows[0].props.onKeyDown({key:'ArrowDown',preventDefault:()=>{}});
+  assert.equal(c.selectedActivityId,'act2');
+
+  const stateView=nodes(c.renderState());
+  const jumpChip=stateView.find(x=>x.tag==='span'&&x.props.class==='uj-link-chip');
+  assert(jumpChip,'State tab should render Jump to journal step chip');
+  await jumpChip.props.onClick();
+  assert.equal(selectedTab,'journal');
+
+  c.inspectionText='{"hello":"world"}';
+  c.inspectionSearch='hello';
+  let modal=nodes(c.renderInspectionDialog());
+  const clearSpan=modal.find(x=>x.tag==='span'&&x.props.class==='uj-search-clear');
+  assert(clearSpan);
+  clearSpan.props.onClick();
+  assert.equal(c.inspectionSearch,'');
+
+  const wrapInput=modal.find(x=>x.tag==='input'&&x.props.type==='checkbox');
+  assert(wrapInput);
+  wrapInput.props.onChange({target:{checked:false}});
+  assert.equal(c.inspectionWrap,false);
+  modal=nodes(c.renderInspectionDialog());
+  assert(modal.find(x=>x.tag==='pre').props.class.includes('uj-nowrap'));
+});

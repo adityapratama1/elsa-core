@@ -21,6 +21,7 @@
 
 | Event            | Description | Type                                      |
 | ---------------- | ----------- | ----------------------------------------- |
+| `journalUpdated` |             | `CustomEvent<JournalOccurrence[]>`        |
 | `recordSelected` |             | `CustomEvent<WorkflowExecutionLogRecord>` |
 
 
@@ -45,20 +46,20 @@ Type: `Promise<void>`
 
 ### Depends on
 
+- [elsa-modal-dialog](../../../shared/elsa-modal-dialog)
 - [elsa-flyout-panel](../../../shared/elsa-flyout-panel)
 - [elsa-tab-header](../../../shared/elsa-tab-header)
 - [elsa-tab-content](../../../shared/elsa-tab-content)
 - [elsa-copy-button](../../../shared/elsa-copy-button)
-- [elsa-modal-dialog](../../../shared/elsa-modal-dialog)
 
 ### Graph
 ```mermaid
 graph TD;
+  elsa-workflow-instance-journal --> elsa-modal-dialog
   elsa-workflow-instance-journal --> elsa-flyout-panel
   elsa-workflow-instance-journal --> elsa-tab-header
   elsa-workflow-instance-journal --> elsa-tab-content
   elsa-workflow-instance-journal --> elsa-copy-button
-  elsa-workflow-instance-journal --> elsa-modal-dialog
   elsa-workflow-instance-viewer-screen --> elsa-workflow-instance-journal
   style elsa-workflow-instance-journal fill:#f9f,stroke:#333,stroke-width:4px
 ```

@@ -16,6 +16,7 @@ import { Map } from "./utils/utils";
 import { PagerData } from "./components/controls/elsa-pager/elsa-pager";
 import { ToastNotificationOptions } from "./components/shared/elsa-toast-notification/elsa-toast-notification";
 import { WebhookDefinition } from "./modules/elsa-webhooks/models";
+import { JournalOccurrence } from "./utils/journal-occurrences";
 import { ActivityStats } from ".";
 export namespace Components {
     interface ElsaActivityEditorModal {
@@ -1298,6 +1299,7 @@ declare namespace LocalJSX {
     }
     interface ElsaWorkflowInstanceJournal {
         "activityDescriptors"?: ActivityDescriptor[];
+        "onJournalUpdated"?: (event: CustomEvent<JournalOccurrence[]>) => void;
         "onRecordSelected"?: (event: CustomEvent<WorkflowExecutionLogRecord>) => void;
         "serverUrl"?: string;
         "workflowBlueprint"?: WorkflowBlueprint;

@@ -26,6 +26,7 @@ import {
 } from "../../../designers/tree/elsa-designer-tree/models";
 import Tunnel from "../../../../data/dashboard";
 import {featuresDataManager} from "../../../../services";
+import {JournalOccurrence, journalResult} from '../../../../utils/journal-occurrences';
 
 @Component({
   tag: 'elsa-workflow-instance-viewer-screen',
@@ -42,6 +43,7 @@ export class ElsaWorkflowInstanceViewerScreen {
   @State() selectedActivityId?: string;
   @State() activityStats?: ActivityStats;
   @State() inspectionLoadError?: string;
+  @State() journalOccurrences: JournalOccurrence[] = [];
 
   @State() activityContextMenuState: ActivityContextMenuState = {
     shown: false,
@@ -255,6 +257,13 @@ export class ElsaWorkflowInstanceViewerScreen {
     this.selectedActivityId = activity != null ? activity.parentId != null ? activity.parentId : activity.id : null;
   }
 
+  onJournalUpdated(e: CustomEvent<JournalOccurrence[]>) {
+    this.journalOccurrences = e.detail || [];
+    if (this.workflowModel) {
+      this.workflowModel = { ...this.workflowModel };
+    }
+  }
+
   async onActivitySelected(e: CustomEvent<ActivityModel>) {
     this.selectedActivityId = e.detail.activityId;
     await this.journal.selectActivityRecord(this.selectedActivityId);
@@ -294,7 +303,8 @@ export class ElsaWorkflowInstanceViewerScreen {
                                         activityDescriptors={descriptors}
                                         workflowBlueprint={this.workflowBlueprint}
                                         workflowModel={this.workflowModel}
-                                        onRecordSelected={e => this.onRecordSelected(e)}/>
+                                        onRecordSelected={e => this.onRecordSelected(e)}
+                                        onJournalUpdated={e => this.onJournalUpdated(e)}/>
       </Host>
     );
   }
@@ -309,6 +319,18 @@ export class ElsaWorkflowInstanceViewerScreen {
 
     if (!!workflowFault && workflowFault.find(x => x.faultedActivityId == activity.activityId))
       return 'red';
+
+    const hasOccurrenceFailure = this.journalOccurrences?.some(occ =>
+      occ.activityId === activity.activityId &&
+      (occ.outcome === 'Faulted' || journalResult(occ).tone === 'faulted')
+    );
+    const rawOutcomes = activityData.Outcomes ?? activityData.outcomes;
+    const outcomes = Array.isArray(rawOutcomes) ? rawOutcomes : typeof rawOutcomes === 'string' ? [rawOutcomes] : [];
+    const hasOutcomeFailure = outcomes.some((x: any) => typeof x === 'string' && /^(failed|unexpected error|error|unsupported status code)$/i.test(x));
+    const isFailure = hasOccurrenceFailure || activityData.Success === false || activityData.success === false || hasOutcomeFailure;
+
+    if (isFailure)
+      return 'yellow';
 
     if (executed)
       return 'green';
@@ -327,6 +349,15 @@ export class ElsaWorkflowInstanceViewerScreen {
     const executing = lifecycle.executing ?? lifecycle.Executing;
     const executed = lifecycle.executed ?? lifecycle.Executed;
 
+    const hasOccurrenceFailure = this.journalOccurrences?.some(occ =>
+      occ.activityId === activity.activityId &&
+      (occ.outcome === 'Faulted' || journalResult(occ).tone === 'faulted')
+    );
+    const rawOutcomes = activityData.Outcomes ?? activityData.outcomes;
+    const outcomes = Array.isArray(rawOutcomes) ? rawOutcomes : typeof rawOutcomes === 'string' ? [rawOutcomes] : [];
+    const hasOutcomeFailure = outcomes.some((x: any) => typeof x === 'string' && /^(failed|unexpected error|error|unsupported status code)$/i.test(x));
+    const isFailure = hasOccurrenceFailure || activityData.Success === false || activityData.success === false || hasOutcomeFailure;
+
     let icon: string;
 
     if (!!workflowFault && workflowFault.find(x => x.faultedActivityId == activity.activityId)) {
@@ -334,6 +365,12 @@ export class ElsaWorkflowInstanceViewerScreen {
                 <circle cx="12" cy="12" r="10"/>
                 <line x1="12" y1="8" x2="12" y2="12"/>
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>`;
+    } else if (isFailure) {
+      icon = `<svg class="elsa-flex-shrink-0 elsa-h-6 elsa-w-6 elsa-text-yellow-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>`;
     } else if (executed) {
       icon = `<svg class="elsa-h-6 elsa-w-6 elsa-text-green-500"  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
