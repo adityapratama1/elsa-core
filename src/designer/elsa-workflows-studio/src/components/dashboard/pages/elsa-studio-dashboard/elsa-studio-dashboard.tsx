@@ -23,7 +23,6 @@ export class ElsaStudioDashboard {
       menuItems: [
         ['workflow-definitions', 'Workflow Definitions'],
         ['workflow-instances', 'Workflow Instances'],
-        ['stale-checkpoints', 'Stale Checkpoints'],
         ['workflow-registry', 'Workflow Registry'],
       ],
       routes: [
@@ -34,7 +33,6 @@ export class ElsaStudioDashboard {
         ['workflow-definitions/:id', 'elsa-studio-workflow-definitions-edit'],
         ['workflow-instances', 'elsa-studio-workflow-instances-list', true],
         ['workflow-instances/:id', 'elsa-studio-workflow-instances-view'],
-        ['stale-checkpoints', 'elsa-studio-stale-checkpoints-list', true],
         ['oauth2-authorized', 'elsa-oauth2-authorized', true],
       ]
     }

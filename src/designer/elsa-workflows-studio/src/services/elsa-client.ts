@@ -238,7 +238,7 @@ export const createElsaClient = async function (serverUrl: string): Promise<Elsa
 
         const queryStringItems = collection.map(queryString, (v, k) => `${k}=${v}`);
         const queryStringText = queryStringItems.length > 0 ? `?${queryStringItems.join('&')}` : '';
-        const response = await httpClient.get<PagedList<WorkflowInstanceSummary>>(`v1/workflow-instances/storage${queryStringText}`);
+        const response = await httpClient.get<PagedList<WorkflowInstanceSummary>>(`v1/workflow-instances${queryStringText}`);
         return response.data;
       },
       get: async id => {
