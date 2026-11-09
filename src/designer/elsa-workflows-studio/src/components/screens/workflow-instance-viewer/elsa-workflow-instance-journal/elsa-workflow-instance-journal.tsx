@@ -41,6 +41,7 @@ export class ElsaWorkflowInstanceJournal {
 
   @State() inspectionBusy = false;
   @State() inspectionRevealed = false;
+  @State() inspectionHasRedactions = false;
   @State() inspectionWrap = true;
   @State() inspectionMatchCount = 0;
   @State() inspectionError?: string;
@@ -65,6 +66,7 @@ export class ElsaWorkflowInstanceJournal {
     this.inspectionWorker?.terminate();this.inspectionWorker=undefined;
     this.inspectionAbort = undefined;
     this.inspectionText = '';
+    this.inspectionHasRedactions = false;
     this.inspectionRevealed = false;
     this.inspectionBusy = false;
     this.inspectionReference = undefined;this.inspectionOperation=undefined;
@@ -95,6 +97,7 @@ export class ElsaWorkflowInstanceJournal {
           if(data.error){reject(new Error(data.error));return;}
           if(data.copy){try{await this.writeClipboardText(data.text);this.setCopied('inspection');}catch{this.copyErrorKey='inspection';}worker.postMessage({id:generation,command:'window',offset:0,query:''});}
           else{this.inspectionText=data.text;this.inspectionTotal=data.total;this.inspectionOffset=data.offset;this.inspectionMatchCount=data.matchCount||0;}
+          if (!reveal) this.inspectionHasRedactions = data.hasRedactions === true;
           this.inspectionRevealed=reveal;resolve();
         };
         worker.postMessage({id:generation,command:'load',url:new URL('/api/dashboard/workflow-inspection/content',this.serverUrl).href,
@@ -176,6 +179,7 @@ export class ElsaWorkflowInstanceJournal {
     }
     try { this.inspectionText = JSON.stringify(inspectionData(value), null, 2) || 'null'; }
     catch { this.inspectionText = JSON.stringify({inspectionError:'This value could not be serialized for inspection. No raw content was exposed.'}); }
+    this.inspectionHasRedactions = this.inspectionText.includes('[REDACTED]');
     this.inspectionDialog.show(true);
   }
 
@@ -191,17 +195,16 @@ export class ElsaWorkflowInstanceJournal {
             {this.inspectionReference && <button class="uj-button" disabled={this.inspectionBusy} onClick={() => this.downloadInspection()}>Download JSON</button>}
             <button class={`uj-button ${this.copiedKey === 'inspection' ? 'uj-button-copied' : 'uj-button-primary'}`} aria-label={this.inspectionReference ? this.inspectionRevealed ? 'Copy original JSON' : 'Copy masked JSON' : 'Copy sanitized inspected JSON'} disabled={this.inspectionBusy || (!this.inspectionReference && !this.inspectionText)} onClick={() => this.copyInspection()}>{this.copiedKey === 'inspection' ? 'Copied' : 'Copy JSON'}</button>
           </div></header>
-        <div class={`uj-security-bar ${this.inspectionRevealed ? 'uj-security-revealed' : 'uj-security-masked'}`}>
+        {this.inspectionHasRedactions && <div class={`uj-security-bar ${this.inspectionRevealed ? 'uj-security-revealed' : 'uj-security-masked'}`}>
           <div class="uj-security-info">
             <strong class="uj-security-badge">{this.inspectionRevealed ? 'Sensitive values are visible' : 'Sensitive values are hidden'}</strong>
             <span>{this.inspectionRevealed ? 'Original unredacted content is shown and audited.' : 'Passwords, tokens, and secrets are masked as [REDACTED].'}</span>
           </div>
           {this.inspectionReference && <div class="uj-actions">
             <button class={`uj-button ${this.inspectionRevealed ? 'uj-button-warning' : 'uj-button-reveal'}`} aria-label={this.inspectionRevealed ? 'Hide sensitive values' : 'Show sensitive values'} disabled={this.inspectionBusy} onClick={() => {const reveal=!this.inspectionRevealed;void this.fetchInspection(reveal);}}>{this.inspectionRevealed ? 'Hide sensitive values' : 'Show sensitive values'}</button>
-            {this.inspectionBusy && <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button>}
           </div>}
-        </div>
-        {this.inspectionBusy && <p role="status">Loading content…</p>}
+        </div>}
+        {this.inspectionBusy && <p role="status">Loading content… <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button></p>}
         {this.inspectionError && <div role="alert"><p>{this.inspectionError}</p><button class="uj-button" onClick={() => this.fetchInspection(false,'view',true)}>Retry</button></div>}
         <div class="uj-inspection-toolbar">
           <div class="uj-search-wrap">

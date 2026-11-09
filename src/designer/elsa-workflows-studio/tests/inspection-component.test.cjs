@@ -70,9 +70,13 @@ test('deferred generic fields with nested sensitive values render Show action in
   c.inspectionDialog={show:()=>{}};
   c.inspectValue({ResponseContent:{$inspection:{reference:'signed-ref',sensitive:false}}},'ResponseContent');
   assert.equal(c.inspectionReference,'signed-ref');
+  assert(!nodes(c.renderInspectionDialog()).find(x=>x.tag==='button'&&x.children.includes('Show sensitive values')));
+  c.inspectionHasRedactions=true;
   const dialog=nodes(c.renderInspectionDialog());
   const showBtn=dialog.find(x=>x.tag==='button'&&x.children.includes('Show sensitive values'));
-  assert(showBtn,'Show sensitive values button must be present for deferred field');
+  assert(showBtn,'Show appears only after masked content reports redactions');
+  c.inspectionRevealed=true;
+  assert(nodes(c.renderInspectionDialog()).find(x=>x.tag==='button'&&x.children.includes('Hide sensitive values')));
   c.clearInspection();
 });
 
@@ -126,3 +130,5 @@ test('interactive KPI cards, keyboard navigation, slow bottleneck badge, state c
   modal=nodes(c.renderInspectionDialog());
   assert(modal.find(x=>x.tag==='pre').props.class.includes('uj-nowrap'));
 });
+
+test('plain content has no security banner and closing clears redaction state',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();c.inspectionText='plain';assert(!nodes(c.renderInspectionDialog()).find(x=>String(x.props.class||'').includes('uj-security-bar')));c.inspectionHasRedactions=true;c.clearInspection();assert.equal(c.inspectionHasRedactions,false);});

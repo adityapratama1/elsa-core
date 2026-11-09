@@ -18,6 +18,7 @@ export function inspectionWorkerMain() {
     return parts.join('');
   };
   let text = '';
+  let hasRedactions = false;
   let controller: AbortController;
   ctx.onmessage = async ({data}: any) => {
     const {id, command} = data;
@@ -30,8 +31,8 @@ export function inspectionWorkerMain() {
             headers:{'Content-Type':'application/json','X-XSRF-TOKEN':data.csrf},
             body:JSON.stringify({reference:data.reference,reveal:data.reveal,action:data.action,operationId:data.operationId})});
           if (!response.ok) throw new Error(response.status === 409 ? 'Recorded data changed or inspection expired. Refresh the workflow.' : 'Content could not be loaded. Check access, audit availability, or retry.');
-          const raw = await response.text();text=format(raw);
-          if (data.action === 'copy') {ctx.postMessage({id,text:raw,copy:true}); return;}
+          const raw = await response.text();hasRedactions=raw.includes('[REDACTED]');text=format(raw);
+          if (data.action === 'copy') {ctx.postMessage({id,text:raw,copy:true,hasRedactions}); return;}
         } finally {clearTimeout(timer);}
       }
       if (command === 'load' || command === 'window') {
@@ -45,7 +46,7 @@ export function inspectionWorkerMain() {
           content = matched.join('\n');
         }
         const offset = data.offset || 0;
-        ctx.postMessage({id,text:content.slice(offset,offset+20000),total:content.length,offset,matchCount});
+        ctx.postMessage({id,text:content.slice(offset,offset+20000),total:content.length,offset,matchCount,hasRedactions});
       }
     } catch(error) {ctx.postMessage({id,error:error.name === 'AbortError' ? 'Inspection cancelled or timed out.' : error.message});}
   };

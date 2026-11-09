@@ -5,3 +5,14 @@ test('worker errors never display server exception bodies',async()=>{const w=mak
 test('worker search operates over full content while returning a bounded window',async()=>{const w=make(async()=>({ok:true,text:async()=> 'x'.repeat(100000)+'\nUnique needle\nother'}));await w.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});await w.ctx.onmessage({data:{id:1,command:'window',query:'NEEDLE'}});assert.equal(w.messages[1].text,'Unique needle');});
 
 test('formatting never coerces numeric precision or date strings',async()=>{const raw='{"amount":1234567890.123456789,"when":"2026-11-07T00:00:00+07:00"}';const w=make(async()=>({ok:true,text:async()=>raw}));await w.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});assert(w.messages[0].text.includes('1234567890.123456789'));assert(w.messages[0].text.includes('2026-11-07T00:00:00+07:00'));await w.ctx.onmessage({data:{id:2,command:'load',url:'/content',action:'copy'}});assert.equal(w.messages[1].text,raw);});
+
+test('redactions are detected across the complete content, outside the visible or searched window',async()=>{
+ const w=make(async()=>({ok:true,text:async()=> 'x'.repeat(25000)+'[REDACTED]'}));
+ await w.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});
+ assert.equal(w.messages[0].hasRedactions,true);assert(!w.messages[0].text.includes('[REDACTED]'));
+ await w.ctx.onmessage({data:{id:1,command:'window',query:'missing'}});
+ assert.equal(w.messages[1].hasRedactions,true);
+ const plain=make(async()=>({ok:true,text:async()=> 'ordinary content'}));
+ await plain.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});
+ assert.equal(plain.messages[0].hasRedactions,false);
+});
