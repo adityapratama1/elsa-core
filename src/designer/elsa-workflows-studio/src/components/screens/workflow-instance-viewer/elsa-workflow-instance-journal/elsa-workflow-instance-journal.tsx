@@ -398,14 +398,15 @@ export class ElsaWorkflowInstanceJournal {
         const complex = item !== null && typeof item === 'object';
         const large = typeof item === 'string' && item.length > 400;
         const outcomeBadges = name.toLowerCase() === 'outcomes' && Array.isArray(safe) && safe.length <= 30 && safe.every(outcome => typeof outcome === 'string' && outcome.length <= 80);
-        const inspectable = !!descriptor || large || (complex && !outcomeBadges);
+        const unavailable = !!(descriptor?.unavailable || descriptor?.kind === 'unavailable');
+        const inspectable = !unavailable && (!!descriptor || large || (complex && !outcomeBadges));
         return <div><dt>{name}</dt><dd class="uj-field-content">
-          <div class="uj-field-summary">{descriptor ? <span class="uj-meta">{descriptor.sensitive ? '[REDACTED]' : `${descriptor.kind}${descriptor.bytes != null ? ' · ' + this.formatBytes(descriptor.bytes) : ''}`}</span> : complex
+          <div class="uj-field-summary">{unavailable ? <span class="uj-meta">Historical content unavailable</span> : descriptor ? <span class="uj-meta">{descriptor.sensitive ? '[REDACTED]' : `${descriptor.kind}${descriptor.bytes != null ? ' · ' + this.formatBytes(descriptor.bytes) : ''}`}</span> : complex
             ? outcomeBadges
               ? <span class="uj-outcomes">{safe.map(outcome => <span class="uj-outcome">{String(outcome)}</span>)}</span>
               : <span class="uj-meta">{Array.isArray(item) ? `${item.length.toLocaleString()} items` : 'Object'}</span>
             : large ? <span class="uj-meta">Text · {item.length.toLocaleString()} characters</span> : this.renderValue(safe)}</div>
-          {descriptor?.kind === 'external' && typeof descriptor.location === 'string' && <div class="uj-external-path">
+          {!unavailable && descriptor?.kind === 'external' && typeof descriptor.location === 'string' && <div class="uj-external-path">
             <span class="uj-meta">Path</span><code>{descriptor.location}</code><elsa-copy-button value={descriptor.location}/>
           </div>}
           {inspectable && <button class="uj-button" aria-label={`View ${name} content`}

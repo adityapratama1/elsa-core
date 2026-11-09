@@ -152,3 +152,18 @@ test('version notice from the worker is shown in the dialog and cleared on close
  assert(text.includes('Stored version from this execution'));
  c.clearInspection();assert.equal(c.inspectionNotice,undefined);
 });
+
+test('unavailable historical external content renders label directly without View content button or path row',()=>{
+ const c=new box.exports.ElsaWorkflowInstanceJournal();
+ const all=nodes(c.renderStructuredData({
+   UnverifiedField:{$inspection:{kind:'unavailable',unavailable:true,message:'Historical content unavailable'}},
+   VerifiedField:{$inspection:{reference:'signed',kind:'external',location:'s3://b/k'}}
+ },'Output','a'));
+ const text=JSON.stringify(all);
+ assert(text.includes('Historical content unavailable'));
+ assert(!all.find(x=>x.props && x.props['aria-label']==='View UnverifiedField content'));
+ assert(all.find(x=>x.props && x.props['aria-label']==='View VerifiedField content'));
+ const code=all.filter(x=>x.tag==='code');
+ assert.equal(code.length,1);
+ assert.equal(code[0].children[0],'s3://b/k');
+});
