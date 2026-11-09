@@ -161,3 +161,7 @@
 .unifi-journal .uj-field-content {display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:30px}
 .unifi-journal .uj-field-summary {min-width:0;overflow-wrap:anywhere}
 .unifi-journal .uj-field-content>.uj-button {flex-shrink:0}
+
+.unifi-journal .uj-external-path { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; min-width: 0; }
+.unifi-journal .uj-external-path code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .75rem; overflow-wrap: anywhere; word-break: break-all; min-width: 0; }
+.unifi-journal .uj-inspection-notice { border-left: 3px solid #2563eb; padding-left: .5rem; }

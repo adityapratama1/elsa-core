@@ -16,3 +16,17 @@ test('redactions are detected across the complete content, outside the visible o
  await plain.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});
  assert.equal(plain.messages[0].hasRedactions,false);
 });
+
+test('worker forwards the version notice and the reason for gone external content',async()=>{
+ const ok=make(async()=>({ok:true,headers:{get:n=>n==='X-Inspection-Notice'?'Stored version from this execution (2026-11-09 10:50:13 UTC).':null},text:async()=> '{"Value":1}'}));
+ await ok.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});
+ assert.equal(ok.messages[0].notice,'Stored version from this execution (2026-11-09 10:50:13 UTC).');
+ await ok.ctx.onmessage({data:{id:1,command:'window',offset:0}});
+ assert.equal(ok.messages[1].notice,'Stored version from this execution (2026-11-09 10:50:13 UTC).');
+ const gone=make(async()=>({ok:false,status:410,json:async()=>({message:'No stored version exists for this execution.'}),text:async()=> 'unused'}));
+ await gone.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});
+ assert.equal(gone.messages[0].error,'No stored version exists for this execution.');
+ const plain=make(async()=>({ok:true,text:async()=> '{}'}));
+ await plain.ctx.onmessage({data:{id:1,command:'load',url:'/content'}});
+ assert.equal(plain.messages[0].notice,'');
+});

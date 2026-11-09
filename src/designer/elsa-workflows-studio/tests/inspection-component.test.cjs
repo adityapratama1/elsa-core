@@ -132,3 +132,23 @@ test('interactive KPI cards, keyboard navigation, slow bottleneck badge, state c
 });
 
 test('plain content has no security banner and closing clears redaction state',()=>{const c=new box.exports.ElsaWorkflowInstanceJournal();c.inspectionText='plain';assert(!nodes(c.renderInspectionDialog()).find(x=>String(x.props.class||'').includes('uj-security-bar')));c.inspectionHasRedactions=true;c.clearInspection();assert.equal(c.inspectionHasRedactions,false);});
+
+test('external fields show their stored path with a copy action; other fields do not',()=>{
+ const c=new box.exports.ElsaWorkflowInstanceJournal();
+ const path='s3://bucket/workflow/qatest/i/a/ResponseContent.json';
+ const all=nodes(c.renderStructuredData({ResponseContent:{$inspection:{reference:'signed',kind:'external',location:path}},Big:{$inspection:{reference:'signed2',kind:'object',bytes:10}}},'Output','a'));
+ const code=all.filter(x=>x.tag==='code');
+ assert.equal(code.length,1);assert.equal(code[0].children[0],path);
+ const copy=all.filter(x=>x.tag==='elsa-copy-button');
+ assert.equal(copy.length,1);assert.equal(copy[0].props.value,path);
+ assert(all.find(x=>x.props['aria-label']==='View ResponseContent content'));
+});
+test('version notice from the worker is shown in the dialog and cleared on close',async()=>{
+ const workers=[];workerFactory=()=>{const w={terminate(){},postMessage(data){this.request=data;}};workers.push(w);return w;};
+ const c=new box.exports.ElsaWorkflowInstanceJournal();c.serverUrl='https://test.local';c.workflowInstance={inspectionCsrf:'csrf'};c.inspectionDialog={show:()=>{}};
+ c.inspectValue({ResponseContent:{$inspection:{reference:'signed',kind:'external'}}},'ResponseContent');
+ await workers[0].onmessage({data:{text:'{"ResponseContent":1}',total:21,offset:0,notice:'Stored version from this execution (2026-11-09 10:50:13 UTC).'}});
+ const text=JSON.stringify(nodes(c.renderInspectionDialog()));
+ assert(text.includes('Stored version from this execution'));
+ c.clearInspection();assert.equal(c.inspectionNotice,undefined);
+});

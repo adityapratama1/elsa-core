@@ -45,6 +45,7 @@ export class ElsaWorkflowInstanceJournal {
   @State() inspectionWrap = true;
   @State() inspectionMatchCount = 0;
   @State() inspectionError?: string;
+  @State() inspectionNotice?: string;
   @State() inspectionTotal = 0;
   @State() inspectionOffset = 0;
   private searchDebounceTimer?: any;
@@ -71,6 +72,7 @@ export class ElsaWorkflowInstanceJournal {
     this.inspectionBusy = false;
     this.inspectionReference = undefined;this.inspectionOperation=undefined;
     this.inspectionError = undefined;
+    this.inspectionNotice = undefined;
   }
 
   private async fetchInspection(reveal: boolean, action = 'view', retry = false) {
@@ -81,7 +83,7 @@ export class ElsaWorkflowInstanceJournal {
     this.inspectionAbort?.abort();
     const abort = new AbortController(); this.inspectionAbort = abort;
     const generation = ++this.inspectionGeneration;
-    this.inspectionBusy = true; this.inspectionText = ''; this.inspectionError = undefined;this.copiedKey=undefined;this.copyErrorKey=undefined;this.inspectionSearch='';
+    this.inspectionBusy = true; this.inspectionText = ''; this.inspectionError = undefined;this.inspectionNotice = undefined;this.copiedKey=undefined;this.copyErrorKey=undefined;this.inspectionSearch='';
     this.inspectionRevealed = false;
     this.inspectionWorker?.terminate();
     this.inspectionOffset=0;this.inspectionTotal=0;
@@ -95,6 +97,7 @@ export class ElsaWorkflowInstanceJournal {
           clearTimeout(timer);
           if(generation!==this.inspectionGeneration){resolve();return;}
           if(data.error){reject(new Error(data.error));return;}
+          this.inspectionNotice = data.notice || undefined;
           if(data.copy){try{await this.writeClipboardText(data.text);this.setCopied('inspection');}catch{this.copyErrorKey='inspection';}worker.postMessage({id:generation,command:'window',offset:0,query:''});}
           else{this.inspectionText=data.text;this.inspectionTotal=data.total;this.inspectionOffset=data.offset;this.inspectionMatchCount=data.matchCount||0;}
           if (!reveal) this.inspectionHasRedactions = data.hasRedactions === true;
@@ -204,6 +207,7 @@ export class ElsaWorkflowInstanceJournal {
             <button class={`uj-button ${this.inspectionRevealed ? 'uj-button-warning' : 'uj-button-reveal'}`} aria-label={this.inspectionRevealed ? 'Hide sensitive values' : 'Show sensitive values'} disabled={this.inspectionBusy} onClick={() => {const reveal=!this.inspectionRevealed;void this.fetchInspection(reveal);}}>{this.inspectionRevealed ? 'Hide sensitive values' : 'Show sensitive values'}</button>
           </div>}
         </div>}
+        {this.inspectionNotice && <p class="uj-note uj-inspection-notice" role="status">{this.inspectionNotice}</p>}
         {this.inspectionBusy && <p role="status">Loading content… <button class="uj-button" onClick={() => this.inspectionAbort?.abort()}>Cancel</button></p>}
         {this.inspectionError && <div role="alert"><p>{this.inspectionError}</p><button class="uj-button" onClick={() => this.fetchInspection(false,'view',true)}>Retry</button></div>}
         <div class="uj-inspection-toolbar">
@@ -401,6 +405,9 @@ export class ElsaWorkflowInstanceJournal {
               ? <span class="uj-outcomes">{safe.map(outcome => <span class="uj-outcome">{String(outcome)}</span>)}</span>
               : <span class="uj-meta">{Array.isArray(item) ? `${item.length.toLocaleString()} items` : 'Object'}</span>
             : large ? <span class="uj-meta">Text · {item.length.toLocaleString()} characters</span> : this.renderValue(safe)}</div>
+          {descriptor?.kind === 'external' && typeof descriptor.location === 'string' && <div class="uj-external-path">
+            <span class="uj-meta">Path</span><code>{descriptor.location}</code><elsa-copy-button value={descriptor.location}/>
+          </div>}
           {inspectable && <button class="uj-button" aria-label={`View ${name} content`}
             onClick={() => this.inspectValue({[name]: item}, name)}>View content</button>}
         </dd></div>;
